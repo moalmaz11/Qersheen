@@ -34,12 +34,12 @@ class AppData extends ChangeNotifier {
   }
 
   void _loadCards() {
-    final String? cardsJson = prefs.getString('cardsData_v15');
+    final String? cardsJson = prefs.getString('cardsData_v16');
     if (cardsJson != null && cardsJson.isNotEmpty) {
       final List<dynamic> decoded = jsonDecode(cardsJson);
       userCards = decoded.map((e) => UserCardModel.fromJson(e)).toList();
     }
-    final List<String>? fps = prefs.getStringList('processed_fps_v15');
+    final List<String>? fps = prefs.getStringList('processed_fps_v16');
     if (fps != null) {
       processedMessageFingerprints = fps.toSet();
     }
@@ -47,8 +47,8 @@ class AppData extends ChangeNotifier {
 
   void saveCards() {
     final String encoded = jsonEncode(userCards.map((c) => c.toJson()).toList());
-    prefs.setString('cardsData_v15', encoded);
-    prefs.setStringList('processed_fps_v15', processedMessageFingerprints.toList());
+    prefs.setString('cardsData_v16', encoded);
+    prefs.setStringList('processed_fps_v16', processedMessageFingerprints.toList());
     notifyListeners();
   }
 
@@ -98,9 +98,9 @@ class AppData extends ChangeNotifier {
       if (!status.isGranted) return -1;
 
       final rawMessages = await SmsQuery().querySms(kinds: [SmsQueryKind.inbox]);
+      // ترتيب زمني تصاعدي صارم: من الأقدم للأحدث لضمان دقة العمليات الحسابية المتتالية
       rawMessages.sort((a, b) => (a.date ?? DateTime.now()).compareTo(b.date ?? DateTime.now()));
 
-      // تجميع ومعالجة الرسائل المقسمة (Multipart SMS Stitching)
       List<_StitchedSMS> stitched = [];
       _StitchedSMS? current;
 
@@ -159,16 +159,18 @@ class AppData extends ChangeNotifier {
       saveCards();
     }
 
-    // 2. تحديث الرصيد حصرياً عند وجود نص صريح ومباشر
+    // 2. التحقق من وجود رصيد صريح ومباشر في الرسالة
     final balMatch = RegExp(
       r'(?:رصيد(?:ك| حسابك)? (?:الحالي|المتاح)|رصيد محفظتك الحالي|current .*?balance is|balance is)\s*[:=]?\s*(\d+(?:\.\d{1,2})?)',
       caseSensitive: false,
     ).firstMatch(text);
 
+    bool hasExplicitBalance = false;
     if (balMatch != null) {
       final bVal = double.tryParse(balMatch.group(1)!);
       if (bVal != null) {
         card.balance = bVal;
+        hasExplicitBalance = true;
         saveCards();
       }
     }
@@ -177,7 +179,7 @@ class AppData extends ChangeNotifier {
         (text.startsWith('رصيد حسابك') && !text.contains('تم دفع') && !text.contains('تم تحويل') && !text.contains('تم استلام'));
     if (isInquiry) return;
 
-    // 3. منع التكرار القاطع
+    // 3. منع التكرار
     if (processedMessageFingerprints.contains(fingerprint)) return;
 
     // 4. تحليل المعاملة والطرف
@@ -216,9 +218,18 @@ class AppData extends ChangeNotifier {
 
     if (amtMatch != null) {
       final amt = double.tryParse(amtMatch.group(1)!);
-      if (amt != null && amt > 0 && amt != card.balance) {
+      if (amt != null && amt > 0) {
         final timeStr = '${timestamp.hour.toString().padLeft(2, '0')}:${timestamp.minute.toString().padLeft(2, '0')} • ${timestamp.day}/${timestamp.month}/${timestamp.year}';
         
+        // إذا لم يكن هناك رصيد صريح مذكور في الرسالة، نحسب ونعدل الرصيد تلقائياً
+        if (!hasExplicitBalance) {
+          if (isIncome) {
+            card.balance += amt;
+          } else {
+            card.balance -= amt;
+          }
+        }
+
         card.transactions.insert(0, TransactionItem(
           name: title, 
           subtitle: sub, 
@@ -379,12 +390,12 @@ class _AppleWalletScreenState extends State<AppleWalletScreen> {
                     children: [
                       IconButton(
                         icon: const Icon(Icons.sync_rounded, color: Colors.blueAccent, size: 28),
-                        tooltip: 'مزامنة دقيقة بدون تكرار',
+                        tooltip: 'مزامنة دقيقة مع الحساب التلقائي',
                         onPressed: () async {
-                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('مزامنة تسلسلية دقيقة لمنع التكرار وتحديث الأرصدة...')));
+                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('مزامنة مرتبة زمنياً مع حساب الأرصدة تلقائياً...')));
                           await widget.appData.autoDetectChronological();
                           if (context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تمت مزامنة المعاملات بأمان')));
+                            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تمت مزامنة المعاملات وتحديث الأرصدة')));
                           }
                         },
                       ),
