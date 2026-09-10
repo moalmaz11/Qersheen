@@ -57,7 +57,6 @@ class AppData extends ChangeNotifier {
   bool isBiometricEnabled;
   bool isAuthenticated = false;
   String language;
-  double dailyBudgetLimit;
   List<UserCardModel> userCards = [];
   List<InstallmentModel> installments = [];
   Map<String, double> categoryBudgets = {};
@@ -67,8 +66,7 @@ class AppData extends ChangeNotifier {
   AppData(this.prefs)
       : isDarkMode = prefs.getBool('isDark') ?? true,
         isBiometricEnabled = prefs.getBool('isBioEnabled') ?? false,
-        language = prefs.getString('app_lang') ?? 'ar',
-        dailyBudgetLimit = prefs.getDouble('dailyLimit') ?? 600.0 {
+        language = prefs.getString('app_lang') ?? 'ar' {
     _loadAll();
     _startNotificationListener();
     _checkInitialAuth();
@@ -118,7 +116,7 @@ class AppData extends ChangeNotifier {
   }
 
   void _loadAll() {
-    final String? cardsJson = prefs.getString('cardsData_v24');
+    final String? cardsJson = prefs.getString('cardsData_v26');
     if (cardsJson != null && cardsJson.isNotEmpty) {
       final List<dynamic> decoded = jsonDecode(cardsJson);
       userCards = decoded.map((e) => UserCardModel.fromJson(e)).toList();
@@ -126,19 +124,19 @@ class AppData extends ChangeNotifier {
       userCards = [
         UserCardModel(
           id: 'cash_wallet_main', bankId: 'cash',
-          cardIdentifier: language == 'ar' ? 'محفظة كاش' : 'Cash Wallet', balance: 0.0, transactions: [],
+          cardIdentifier: language == 'ar' ? 'محفظة النقود السائلة' : 'Cash Wallet', balance: 0.0, transactions: [],
         )
       ];
       saveCards();
     }
 
-    final String? instJson = prefs.getString('installments_v24');
+    final String? instJson = prefs.getString('installments_v26');
     if (instJson != null && instJson.isNotEmpty) {
       final List<dynamic> decInst = jsonDecode(instJson);
       installments = decInst.map((e) => InstallmentModel.fromJson(e)).toList();
     }
 
-    final String? budJson = prefs.getString('catBudgets_v24');
+    final String? budJson = prefs.getString('catBudgets_v26');
     if (budJson != null && budJson.isNotEmpty) {
       final Map<String, dynamic> decBud = jsonDecode(budJson);
       categoryBudgets = decBud.map((k, v) => MapEntry(k, (v as num).toDouble()));
@@ -147,23 +145,23 @@ class AppData extends ChangeNotifier {
       saveCategoryBudgets();
     }
 
-    final List<String>? fps = prefs.getStringList('processed_fps_v24');
+    final List<String>? fps = prefs.getStringList('processed_fps_v26');
     if (fps != null) processedMessageFingerprints = fps.toSet();
   }
 
   void saveCards() {
-    prefs.setString('cardsData_v24', jsonEncode(userCards.map((c) => c.toJson()).toList()));
-    prefs.setStringList('processed_fps_v24', processedMessageFingerprints.toList());
+    prefs.setString('cardsData_v26', jsonEncode(userCards.map((c) => c.toJson()).toList()));
+    prefs.setStringList('processed_fps_v26', processedMessageFingerprints.toList());
     notifyListeners();
   }
 
   void saveInstallments() {
-    prefs.setString('installments_v24', jsonEncode(installments.map((i) => i.toJson()).toList()));
+    prefs.setString('installments_v26', jsonEncode(installments.map((i) => i.toJson()).toList()));
     notifyListeners();
   }
 
   void saveCategoryBudgets() {
-    prefs.setString('catBudgets_v24', jsonEncode(categoryBudgets));
+    prefs.setString('catBudgets_v26', jsonEncode(categoryBudgets));
     notifyListeners();
   }
 
@@ -182,6 +180,11 @@ class AppData extends ChangeNotifier {
       inst.paidMonths++;
       saveInstallments();
     }
+  }
+
+  void deleteInstallment(String id) {
+    installments.removeWhere((i) => i.id == id);
+    saveInstallments();
   }
 
   void setCategoryBudget(String category, double limit) {
@@ -225,7 +228,7 @@ class AppData extends ChangeNotifier {
   void addManualCashTx({required String title, required double amount, required bool isIncome, required String category}) {
     final cashCard = userCards.firstWhere((c) => c.bankId == 'cash');
     if (isIncome) cashCard.balance += amount; else cashCard.balance -= amount;
-    final timeStr = '${DateTime.now().hour}:${DateTime.now().minute} • ${DateTime.now().day}/${DateTime.now().month}/${DateTime.now().year}';
+    final timeStr = '${DateTime.now().hour}:${DateTime.now().minute.toString().padLeft(2, '0')} • ${DateTime.now().day}/${DateTime.now().month}/${DateTime.now().year}';
     cashCard.transactions.insert(0, TransactionItem(
       name: title, subtitle: 'يدوي', date: timeStr, amount: amount, isIncome: isIncome, category: category, txFingerprint: 'cash_${DateTime.now().millisecondsSinceEpoch}',
     ));
@@ -324,13 +327,19 @@ class AppData extends ChangeNotifier {
     if (!isIncome && !isExpense) return;
 
     String extractedName = 'معاملة مالية';
-    final nameMatch = RegExp(r'(?:لـ|إلى|من|لدى|في|to|from)\s+([A-Za-z\u0600-\u06FF\s]{3,20})').firstMatch(text);
-    if (nameMatch != null) extractedName = nameMatch.group(1)!.trim();
+    // تنظيف الذكاء الاصطناعي من الكلمات الزائدة والترويجية
+    final nameMatch = RegExp(r'(?:لـ|إلى|من|لدى|في|to|from)\s+([A-Za-z\u0621-\u064A0-9\s\.\-]{3,25})').firstMatch(text);
+    if (nameMatch != null) {
+      String rawName = nameMatch.group(1)!;
+      rawName = rawName.replaceAll(RegExp(r'(محفظة|كاش|هو|عمليه|شراء|واكسب|رصيد|حساب|رقم|بمبلغ|بتاريخ)'), '');
+      extractedName = rawName.trim();
+      if (extractedName.isEmpty) extractedName = 'معاملة مالية';
+    }
 
     String title = isIncome ? 'استلام من $extractedName' : 'دفع لـ $extractedName';
     String category = isIncome ? 'تحويلات' : 'فواتير ومشتريات';
 
-    final amtMatch = RegExp(r'(\d+(?:\.\d{1,2})?)\s*(?:جنية|جنيه|EGP|LE)').firstMatch(text) ?? RegExp(r'(?:مبلغ|بيمة)\s*(\d+(?:\.\d{1,2})?)').firstMatch(text);
+    final amtMatch = RegExp(r'(\d+(?:\.\d{1,2})?)\s*(?:جنية|جنيه|EGP|LE)').firstMatch(text) ?? RegExp(r'(?:مبلغ|قيمة)\s*(\d+(?:\.\d{1,2})?)').firstMatch(text);
     
     if (amtMatch != null) {
       final amt = double.tryParse(amtMatch.group(1)!);
@@ -338,7 +347,7 @@ class AppData extends ChangeNotifier {
         if (!hasExplicitBalance) {
           if (isIncome) card.balance += amt; else card.balance -= amt;
         }
-        final timeStr = '${timestamp.hour}:${timestamp.minute} • ${timestamp.day}/${timestamp.month}/${timestamp.year}';
+        final timeStr = '${timestamp.day}/${timestamp.month}/${timestamp.year}';
         card.transactions.insert(0, TransactionItem(name: title, date: timeStr, amount: amt, isIncome: isIncome, category: category, txFingerprint: fingerprint));
         processedMessageFingerprints.add(fingerprint);
         saveCards();
@@ -389,8 +398,8 @@ class QersheenApp extends StatelessWidget {
       builder: (context, _) => MaterialApp(
         debugShowCheckedModeBanner: false,
         themeMode: appData.isDarkMode ? ThemeMode.dark : ThemeMode.light,
-        theme: ThemeData(brightness: Brightness.light, scaffoldBackgroundColor: const Color(0xFFF2F4F7)),
-        darkTheme: ThemeData(brightness: Brightness.dark, scaffoldBackgroundColor: Colors.black),
+        theme: ThemeData(brightness: Brightness.light, scaffoldBackgroundColor: const Color(0xFFF8F9FA)),
+        darkTheme: ThemeData(brightness: Brightness.dark, scaffoldBackgroundColor: const Color(0xFF09090B)),
         builder: (context, child) => Directionality(textDirection: appData.language == 'ar' ? TextDirection.rtl : TextDirection.ltr, child: child!),
         home: appData.isBiometricEnabled && !appData.isAuthenticated ? AuthLockScreen(appData: appData) : MainLayoutScreen(appData: appData),
       ),
@@ -411,7 +420,11 @@ class AuthLockScreen extends StatelessWidget {
           children: [
             const Icon(Icons.fingerprint, size: 80, color: Color(0xFF10B981)),
             const SizedBox(height: 24),
-            ElevatedButton(onPressed: () => appData.authenticateUser(), child: const Text('فتح المحفظة بالبصمة')),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF10B981)),
+              onPressed: () => appData.authenticateUser(), 
+              child: const Text('فتح المحفظة بالبصمة', style: TextStyle(color: Colors.white)),
+            ),
           ],
         ),
       ),
@@ -433,6 +446,7 @@ class _MainLayoutScreenState extends State<MainLayoutScreen> {
   @override
   Widget build(BuildContext context) {
     final pages = [AppleWalletScreen(appData: widget.appData), InstallmentsView(appData: widget.appData), CategoryBudgetsView(appData: widget.appData), SettingsTabView(appData: widget.appData)];
+    final isDark = widget.appData.isDarkMode;
     return Scaffold(
       body: IndexedStack(index: _tab, children: pages),
       bottomNavigationBar: BottomNavigationBar(
@@ -441,12 +455,13 @@ class _MainLayoutScreenState extends State<MainLayoutScreen> {
         type: BottomNavigationBarType.fixed,
         selectedItemColor: const Color(0xFF10B981),
         unselectedItemColor: Colors.grey,
-        backgroundColor: widget.appData.isDarkMode ? const Color(0xFF121212) : Colors.white,
+        backgroundColor: isDark ? const Color(0xFF121212) : Colors.white,
+        elevation: 10,
         items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.account_balance_wallet), label: 'المحفظة'),
-          BottomNavigationBarItem(icon: Icon(Icons.credit_score), label: 'الأقساط'),
-          BottomNavigationBarItem(icon: Icon(Icons.pie_chart), label: 'الميزانية'),
-          BottomNavigationBarItem(icon: Icon(Icons.settings), label: 'الإعدادات'),
+          BottomNavigationBarItem(icon: Icon(Icons.account_balance_wallet_rounded), label: 'المحفظة'),
+          BottomNavigationBarItem(icon: Icon(Icons.credit_score_rounded), label: 'الأقساط'),
+          BottomNavigationBarItem(icon: Icon(Icons.pie_chart_rounded), label: 'الميزانية'),
+          BottomNavigationBarItem(icon: Icon(Icons.settings_rounded), label: 'الإعدادات'),
         ],
       ),
     );
@@ -468,24 +483,34 @@ class _AppleWalletScreenState extends State<AppleWalletScreen> {
     final ctrl = TextEditingController(text: card.cardIdentifier);
     showModalBottomSheet(
       context: context,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
       builder: (ctx) => Padding(
-        padding: const EdgeInsets.all(20),
+        padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom, top: 24, left: 24, right: 24),
         child: Column(
           mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('إعدادات الكارت', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 10),
-            TextField(controller: ctrl, decoration: const InputDecoration(labelText: 'الاسم أو رقم الكارت')),
-            const SizedBox(height: 10),
-            ElevatedButton(
-              onPressed: () { widget.appData.editCardName(card.id, ctrl.text); Navigator.pop(ctx); },
-              child: const Text('حفظ التعديل'),
+            const Text('إعدادات الكارت', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 16),
+            TextField(controller: ctrl, decoration: const InputDecoration(labelText: 'الاسم أو رقم الحساب', border: OutlineInputBorder())),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF10B981), padding: const EdgeInsets.all(14)),
+                onPressed: () { widget.appData.editCardName(card.id, ctrl.text); Navigator.pop(ctx); },
+                child: const Text('حفظ التعديل', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+              ),
             ),
-            const Divider(),
-            TextButton(
-              onPressed: () { widget.appData.deleteCard(card.id); Navigator.pop(ctx); },
-              child: const Text('حذف هذا الكارت نهائياً', style: TextStyle(color: Colors.red)),
+            const SizedBox(height: 8),
+            SizedBox(
+              width: double.infinity,
+              child: TextButton(
+                onPressed: () { widget.appData.deleteCard(card.id); setState((){ _expandedIndex = null; }); Navigator.pop(ctx); },
+                child: const Text('حذف هذا الكارت نهائياً', style: TextStyle(color: Colors.redAccent)),
+              ),
             ),
+            const SizedBox(height: 16),
           ],
         ),
       ),
@@ -495,6 +520,228 @@ class _AppleWalletScreenState extends State<AppleWalletScreen> {
   @override
   Widget build(BuildContext context) {
     final cards = widget.appData.userCards;
+    final isDark = widget.appData.isDarkMode;
+
+    return SafeArea(
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 20, 20, 10),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('المحفظة', style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold)),
+                    Text('الإجمالي: ${widget.appData.getTotalBalance().toStringAsFixed(0)} EGP', style: const TextStyle(color: Colors.grey, fontSize: 14)),
+                  ],
+                ),
+                IconButton(icon: const Icon(Icons.sync_rounded, color: Colors.blueAccent, size: 28), onPressed: () => widget.appData.autoDetectChronological()),
+              ],
+            ),
+          ),
+          Expanded(
+            child: _expandedIndex != null 
+              ? _buildExpandedView(cards[_expandedIndex!], isDark)
+              : _buildStackedView(cards),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStackedView(List<UserCardModel> cards) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.only(bottom: 40),
+      child: SizedBox(
+        height: 220.0 + (cards.length - 1) * 70.0,
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: List.generate(cards.length, (i) {
+            return Positioned(
+              top: i * 70.0, left: 16, right: 16,
+              child: GestureDetector(
+                onTap: () => setState(() => _expandedIndex = i),
+                onLongPress: () => _showCardOptions(cards[i]),
+                child: _buildCardDesign(cards[i]),
+              ),
+            );
+          }),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildExpandedView(UserCardModel card, bool isDark) {
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: GestureDetector(
+            onTap: () => setState(() => _expandedIndex = null),
+            onLongPress: () => _showCardOptions(card),
+            child: _buildCardDesign(card),
+          ),
+        ),
+        const SizedBox(height: 16),
+        TextButton.icon(
+          onPressed: () => setState(() => _expandedIndex = null),
+          icon: const Icon(Icons.keyboard_arrow_up_rounded, color: Colors.grey),
+          label: const Text('طي الكارت وعرض المحفظة', style: TextStyle(color: Colors.grey)),
+        ),
+        Expanded(
+          child: ListView.builder(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            itemCount: card.transactions.length,
+            itemBuilder: (ctx, idx) {
+              final tx = card.transactions[idx];
+              return Container(
+                margin: const EdgeInsets.only(bottom: 12),
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: isDark ? const Color(0xFF1C1C1E) : Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 10, offset: const Offset(0, 4))],
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(tx.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15), overflow: TextOverflow.ellipsis),
+                          const SizedBox(height: 4),
+                          Text('${tx.category} • ${tx.date}', style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                        ],
+                      ),
+                    ),
+                    Text('${tx.isIncome ? '+' : '-'}${tx.amount.toStringAsFixed(0)}', style: TextStyle(color: tx.isIncome ? Colors.green : Colors.redAccent, fontWeight: FontWeight.bold, fontSize: 16)),
+                  ],
+                ),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildCardDesign(UserCardModel card) {
+    return Container(
+      height: 220,
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(colors: card.bank.gradientColors, begin: Alignment.topLeft, end: Alignment.bottomRight),
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [BoxShadow(color: card.bank.gradientColors.last.withOpacity(0.4), blurRadius: 15, offset: const Offset(0, 8))],
+      ),
+      child: Stack(
+        children: [
+          if (card.bank.logoPath.isNotEmpty)
+            Positioned(
+              left: 0, top: 0,
+              child: Opacity(
+                opacity: 0.15,
+                child: Image.asset(card.bank.logoPath, width: 120, height: 120, fit: BoxFit.contain, errorBuilder: (c, e, s) => const SizedBox()),
+              ),
+            ),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(card.bank.name, style: TextStyle(color: card.bank.textColor, fontSize: 18, fontWeight: FontWeight.bold)),
+                  if (card.bank.logoPath.isNotEmpty)
+                    Container(
+                      padding: const EdgeInsets.all(6),
+                      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8)),
+                      child: Image.asset(card.bank.logoPath, width: 30, height: 30, fit: BoxFit.contain, errorBuilder: (c, e, s) => Icon(Icons.account_balance, color: card.bank.gradientColors.first)),
+                    ),
+                ],
+              ),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('الرصيد المتاح', style: TextStyle(color: card.bank.textColor.withOpacity(0.8), fontSize: 12)),
+                  Text('${card.balance.toStringAsFixed(2)} EGP', style: TextStyle(color: card.bank.textColor, fontSize: 28, fontWeight: FontWeight.w900)),
+                ],
+              ),
+              Text(card.cardIdentifier, style: TextStyle(color: card.bank.textColor.withOpacity(0.9), fontSize: 16, letterSpacing: 2)),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class InstallmentsView extends StatefulWidget {
+  final AppData appData;
+  const InstallmentsView({super.key, required this.appData});
+  @override
+  State<InstallmentsView> createState() => _InstallmentsViewState();
+}
+
+class _InstallmentsViewState extends State<InstallmentsView> {
+  void _showAddSheet() {
+    final titleCtrl = TextEditingController();
+    final provCtrl = TextEditingController();
+    final amtCtrl = TextEditingController();
+    final monthsCtrl = TextEditingController();
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (ctx) => Padding(
+        padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom, top: 24, left: 24, right: 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('إضافة قسط جديد', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 16),
+            TextField(controller: titleCtrl, decoration: const InputDecoration(labelText: 'اسم السلعة (مثال: موبايل)', border: OutlineInputBorder())),
+            const SizedBox(height: 12),
+            TextField(controller: provCtrl, decoration: const InputDecoration(labelText: 'جهة التقسيط (مثال: فاليو، أمان)', border: OutlineInputBorder())),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(child: TextField(controller: amtCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'القسط الشهري', border: OutlineInputBorder()))),
+                const SizedBox(width: 12),
+                Expanded(child: TextField(controller: monthsCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'عدد الشهور', border: OutlineInputBorder()))),
+              ],
+            ),
+            const SizedBox(height: 20),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF10B981), padding: const EdgeInsets.all(14)),
+                onPressed: () {
+                  final amt = double.tryParse(amtCtrl.text);
+                  final m = int.tryParse(monthsCtrl.text);
+                  if (amt != null && m != null && titleCtrl.text.isNotEmpty) {
+                    widget.appData.addInstallment(titleCtrl.text, provCtrl.text.isEmpty ? 'جهة تقسيط' : provCtrl.text, amt, m);
+                    Navigator.pop(ctx);
+                  }
+                },
+                child: const Text('حفظ القسط', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+              ),
+            ),
+            const SizedBox(height: 20),
+          ],
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = widget.appData.isDarkMode;
     return SafeArea(
       child: Column(
         children: [
@@ -503,94 +750,74 @@ class _AppleWalletScreenState extends State<AppleWalletScreen> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text('إجمالي الرصيد: ${widget.appData.getTotalBalance().toStringAsFixed(0)}', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-                IconButton(icon: const Icon(Icons.sync, color: Colors.blue), onPressed: () => widget.appData.autoDetectChronological()),
+                const Text('الأقساط والمدفوعات', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+                IconButton(icon: const Icon(Icons.add_circle_rounded, color: Color(0xFF10B981), size: 32), onPressed: _showAddSheet),
               ],
             ),
           ),
           Expanded(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.only(bottom: 80),
-              child: Column(
-                children: [
-                  SizedBox(
-                    height: _expandedIndex == null ? (220.0 + (cards.length - 1) * 68.0) : 240.0,
-                    child: Stack(
-                      clipBehavior: Clip.none,
-                      children: List.generate(cards.length, (i) {
-                        final top = _expandedIndex == null ? (i * 68.0) : (_expandedIndex == i ? 0.0 : 300.0);
-                        return AnimatedPositioned(
-                          duration: const Duration(milliseconds: 300),
-                          top: top, left: 16, right: 16,
-                          child: GestureDetector(
-                            onTap: () => setState(() => _expandedIndex = _expandedIndex == i ? null : i),
-                            onLongPress: () => _showCardOptions(cards[i]),
-                            child: Container(
-                              height: 220,
-                              padding: const EdgeInsets.all(20),
-                              decoration: BoxDecoration(
-                                gradient: LinearGradient(colors: cards[i].bank.gradientColors),
-                                borderRadius: BorderRadius.circular(20),
-                                boxShadow: const [BoxShadow(color: Colors.black54, blurRadius: 10, offset: Offset(0, 5))],
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Text(cards[i].bank.name, style: TextStyle(color: cards[i].bank.textColor, fontSize: 18, fontWeight: FontWeight.bold)),
-                                  Text('${cards[i].balance.toStringAsFixed(2)} EGP', style: TextStyle(color: cards[i].bank.textColor, fontSize: 24, fontWeight: FontWeight.bold)),
-                                  Text(cards[i].cardIdentifier, style: TextStyle(color: cards[i].bank.textColor, fontSize: 16)),
-                                ],
-                              ),
-                            ),
-                          ),
-                        );
-                      }),
-                    ),
-                  ),
-                  if (_expandedIndex != null)
-                    ListView.builder(
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      itemCount: cards[_expandedIndex!].transactions.length,
-                      itemBuilder: (ctx, idx) {
-                        final tx = cards[_expandedIndex!].transactions[idx];
-                        return ListTile(
-                          title: Text(tx.name), subtitle: Text(tx.date),
-                          trailing: Text('${tx.isIncome ? '+' : '-'}${tx.amount}', style: TextStyle(color: tx.isIncome ? Colors.green : Colors.red, fontWeight: FontWeight.bold)),
-                        );
-                      },
-                    ),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class InstallmentsView extends StatelessWidget {
-  final AppData appData;
-  const InstallmentsView({super.key, required this.appData});
-
-  @override
-  Widget build(BuildContext context) {
-    return SafeArea(
-      child: Column(
-        children: [
-          const Padding(padding: EdgeInsets.all(20), child: Text('الأقساط الشهرية', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold))),
-          ElevatedButton(onPressed: () => appData.addInstallment('موبايل', 'فاليو', 500, 12), child: const Text('إضافة قسط تجريبي')),
-          Expanded(
-            child: ListView.builder(
-              itemCount: appData.installments.length,
+            child: widget.appData.installments.isEmpty 
+              ? const Center(child: Text('لا توجد أقساط مسجلة حالياً', style: TextStyle(color: Colors.grey)))
+              : ListView.builder(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              itemCount: widget.appData.installments.length,
               itemBuilder: (ctx, i) {
-                final inst = appData.installments[i];
-                return ListTile(
-                  title: Text(inst.title),
-                  subtitle: Text('المدفوع: ${inst.paidMonths} من ${inst.totalMonths} شهور'),
-                  trailing: IconButton(icon: const Icon(Icons.check_circle, color: Colors.green), onPressed: () => appData.markInstallmentPaid(inst.id)),
+                final inst = widget.appData.installments[i];
+                final isDone = inst.paidMonths >= inst.totalMonths;
+                return Container(
+                  margin: const EdgeInsets.only(bottom: 16),
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: isDark ? const Color(0xFF1C1C1E) : Colors.white,
+                    borderRadius: BorderRadius.circular(20),
+                    boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 10, offset: const Offset(0, 4))],
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(inst.title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                              Text('${inst.provider} • ${inst.monthlyAmount.toStringAsFixed(0)} ج.م / شهر', style: const TextStyle(color: Colors.grey, fontSize: 13)),
+                            ],
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
+                            onPressed: () => widget.appData.deleteInstallment(inst.id),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: LinearProgressIndicator(
+                          value: inst.progress,
+                          minHeight: 8,
+                          backgroundColor: Colors.grey.withOpacity(0.2),
+                          valueColor: AlwaysStoppedAnimation(isDone ? Colors.green : const Color(0xFF10B981)),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text('تم سداد: ${inst.paidMonths} / ${inst.totalMonths} شهر', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                          if (!isDone)
+                            ElevatedButton(
+                              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF10B981), padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 0), minimumSize: const Size(0, 32)),
+                              onPressed: () => widget.appData.markInstallmentPaid(inst.id),
+                              child: const Text('دفع قسط', style: TextStyle(color: Colors.white, fontSize: 12)),
+                            )
+                          else
+                            const Text('مكتمل', style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold, fontSize: 12)),
+                        ],
+                      ),
+                    ],
+                  ),
                 );
               },
             ),
@@ -607,18 +834,55 @@ class CategoryBudgetsView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = appData.isDarkMode;
     return SafeArea(
       child: Column(
         children: [
-          const Padding(padding: EdgeInsets.all(20), child: Text('ميزانية التصنيفات', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold))),
+          const Padding(
+            padding: EdgeInsets.all(20),
+            child: Align(alignment: Alignment.centerRight, child: Text('الميزانية والاستهلاك', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold))),
+          ),
           Expanded(
             child: ListView(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
               children: appData.categoryBudgets.entries.map((e) {
                 final spent = appData.getCategoryMonthlySpent(e.key);
-                return ListTile(
-                  title: Text(e.key),
-                  subtitle: LinearProgressIndicator(value: e.value > 0 ? spent / e.value : 0),
-                  trailing: Text('${spent.toStringAsFixed(0)} / ${e.value.toStringAsFixed(0)}'),
+                final limit = e.value;
+                final pct = limit > 0 ? (spent / limit).clamp(0.0, 1.0) : 0.0;
+                final isExceeded = spent > limit;
+                return Container(
+                  margin: const EdgeInsets.only(bottom: 16),
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: isDark ? const Color(0xFF1C1C1E) : Colors.white,
+                    borderRadius: BorderRadius.circular(20),
+                    border: isExceeded ? Border.all(color: Colors.redAccent.withOpacity(0.5), width: 1.5) : null,
+                    boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.03), blurRadius: 10, offset: const Offset(0, 4))],
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(e.key, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                          Text('${(pct * 100).toStringAsFixed(0)}%', style: TextStyle(fontWeight: FontWeight.bold, color: isExceeded ? Colors.redAccent : const Color(0xFF10B981))),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: LinearProgressIndicator(
+                          value: pct,
+                          minHeight: 8,
+                          backgroundColor: Colors.grey.withOpacity(0.2),
+                          valueColor: AlwaysStoppedAnimation(isExceeded ? Colors.redAccent : const Color(0xFF10B981)),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Text('الاستهلاك: ${spent.toStringAsFixed(0)} من أصل ${limit.toStringAsFixed(0)} ج.م', style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                    ],
+                  ),
                 );
               }).toList(),
             ),
@@ -640,9 +904,36 @@ class SettingsTabView extends StatelessWidget {
         padding: const EdgeInsets.all(20),
         children: [
           const Text('الإعدادات والتقارير', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
-          ListTile(leading: const Icon(Icons.table_chart, color: Colors.green), title: const Text('تصدير كشف حساب إكسيل CSV'), onTap: () => appData.exportCsvReport()),
-          ListTile(leading: const Icon(Icons.picture_as_pdf, color: Colors.red), title: const Text('تصدير كشف حساب PDF'), onTap: () => appData.exportPdfReport()),
-          SwitchListTile(title: const Text('قفل البصمة'), value: appData.isBiometricEnabled, onChanged: (v) => appData.toggleBiometric(v)),
+          const SizedBox(height: 20),
+          ListTile(
+            leading: const Icon(Icons.table_chart_rounded, color: Colors.green, size: 28),
+            title: const Text('تصدير كشف حساب إكسيل CSV'),
+            subtitle: const Text('حفظ نسخة كاملة من بياناتك لمعالجتها'),
+            onTap: () => appData.exportCsvReport(),
+          ),
+          const Divider(),
+          ListTile(
+            leading: const Icon(Icons.picture_as_pdf_rounded, color: Colors.redAccent, size: 28),
+            title: const Text('تصدير تقرير PDF رسمي'),
+            subtitle: const Text('ملف منسق جاهز للطباعة والمشاركة'),
+            onTap: () => appData.exportPdfReport(),
+          ),
+          const Divider(),
+          SwitchListTile(
+            secondary: const Icon(Icons.fingerprint_rounded, color: Color(0xFF10B981), size: 28),
+            title: const Text('قفل التطبيق بالبصمة'),
+            subtitle: const Text('حماية بياناتك المالية عند فتح التطبيق'),
+            activeColor: const Color(0xFF10B981),
+            value: appData.isBiometricEnabled,
+            onChanged: (v) => appData.toggleBiometric(v),
+          ),
+          SwitchListTile(
+            secondary: const Icon(Icons.dark_mode_rounded, size: 28),
+            title: const Text('الوضع الداكن'),
+            activeColor: const Color(0xFF10B981),
+            value: appData.isDarkMode,
+            onChanged: (v) => appData.toggleTheme(),
+          ),
         ],
       ),
     );
