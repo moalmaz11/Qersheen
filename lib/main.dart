@@ -105,7 +105,7 @@ class AppData extends ChangeNotifier {
       }
       final didAuth = await _auth.authenticate(
         localizedReason: 'يرجى تأكيد هويتك لفتح محفظة قرشين بأمان',
-        options: AuthenticationOptions(stickyAuth: true, biometricOnly: false),
+        options: const AuthenticationOptions(stickyAuth: true, biometricOnly: false),
       );
       isAuthenticated = didAuth;
       notifyListeners();
@@ -136,7 +136,7 @@ class AppData extends ChangeNotifier {
   }
 
   void _loadAll() {
-    final String? cardsJson = prefs.getString('cardsData_v20');
+    final String? cardsJson = prefs.getString('cardsData_v21');
     if (cardsJson != null && cardsJson.isNotEmpty) {
       final List<dynamic> decoded = jsonDecode(cardsJson);
       userCards = decoded.map((e) => UserCardModel.fromJson(e)).toList();
@@ -150,13 +150,13 @@ class AppData extends ChangeNotifier {
       saveCards();
     }
 
-    final String? instJson = prefs.getString('installments_v20');
+    final String? instJson = prefs.getString('installments_v21');
     if (instJson != null && instJson.isNotEmpty) {
       final List<dynamic> decInst = jsonDecode(instJson);
       installments = decInst.map((e) => InstallmentModel.fromJson(e)).toList();
     }
 
-    final String? budJson = prefs.getString('catBudgets_v20');
+    final String? budJson = prefs.getString('catBudgets_v21');
     if (budJson != null && budJson.isNotEmpty) {
       final Map<String, dynamic> decBud = jsonDecode(budJson);
       categoryBudgets = decBud.map((k, v) => MapEntry(k, (v as num).toDouble()));
@@ -171,23 +171,23 @@ class AppData extends ChangeNotifier {
       saveCategoryBudgets();
     }
 
-    final List<String>? fps = prefs.getStringList('processed_fps_v20');
+    final List<String>? fps = prefs.getStringList('processed_fps_v21');
     if (fps != null) processedMessageFingerprints = fps.toSet();
   }
 
   void saveCards() {
-    prefs.setString('cardsData_v20', jsonEncode(userCards.map((c) => c.toJson()).toList()));
-    prefs.setStringList('processed_fps_v20', processedMessageFingerprints.toList());
+    prefs.setString('cardsData_v21', jsonEncode(userCards.map((c) => c.toJson()).toList()));
+    prefs.setStringList('processed_fps_v21', processedMessageFingerprints.toList());
     notifyListeners();
   }
 
   void saveInstallments() {
-    prefs.setString('installments_v20', jsonEncode(installments.map((i) => i.toJson()).toList()));
+    prefs.setString('installments_v21', jsonEncode(installments.map((i) => i.toJson()).toList()));
     notifyListeners();
   }
 
   void saveCategoryBudgets() {
-    prefs.setString('catBudgets_v20', jsonEncode(categoryBudgets));
+    prefs.setString('catBudgets_v21', jsonEncode(categoryBudgets));
     notifyListeners();
   }
 
@@ -431,6 +431,7 @@ class AppData extends ChangeNotifier {
     return count;
   }
 
+  // ================= محرك التحليل الذكي الهجين (Smart AI/NLP Fallback) =================
   void _processMessage(BankEntity bank, String rawText, DateTime timestamp, String? uniqueSmsId) {
     final text = rawText.replaceAll('\n', ' ').trim();
     final fingerprint = uniqueSmsId ?? '${bank.id}_${timestamp.millisecondsSinceEpoch}_${text.hashCode}';
@@ -485,6 +486,7 @@ class AppData extends ChangeNotifier {
     bool isIncome = false;
     String category = 'عام';
 
+    // 1. محاولة القواعد السريعة (RegEx Rules)
     if (text.contains('تم سحب') || text.contains('سحب نقدي') || text.contains('Cash withdrawal')) {
       title = 'سحب نقدي ATM';
       category = 'سحب كاش';
@@ -513,9 +515,18 @@ class AppData extends ChangeNotifier {
       category = 'تحويلات';
       final tNum = RegExp(r'(?:لرقم|to|إلى)\s*(01[0125][0-9]{8})').firstMatch(text);
       title = tNum != null ? 'تحويل إلى ${tNum.group(1)}' : 'تحويل صادر';
+    } else {
+      // 2. المحرك الذكي الاحتياطي (Smart NLP Fallback for Unknown Formats)
+      if (text.contains('خصم') || text.contains('سحب') || text.contains('شراء') || text.contains('paid') || text.contains('debited')) {
+        isIncome = false;
+        title = 'معامل خصم / شراء';
+      } else if (text.contains('إيداع') || text.contains('إضافة') || text.contains('credited') || text.contains('received')) {
+        isIncome = true;
+        title = 'معاملة إيداع';
+      }
     }
 
-    final amtMatch = RegExp(r'(?:مبلغ|سحب|تحويل|transferred)\s*[:=]?\s*(\d+(?:\.\d{1,2})?)\s*(?:جنية|جنيه|ج\.م|L\.E|LE|EGP)?', caseSensitive: false).firstMatch(text) ??
+    final amtMatch = RegExp(r'(?:مبلغ|سحب|تحويل|transferred|بمبلغ|قيمة)?\s*[:=]?\s*(\d+(?:\.\d{1,2})?)\s*(?:جنية|جنيه|ج\.م|L\.E|LE|EGP)?', caseSensitive: false).firstMatch(text) ??
         RegExp(r'(\d+(?:\.\d{1,2})?)\s*(?:L\.E|LE|EGP|جنية|جنيه|ج\.م)').firstMatch(text);
 
     if (amtMatch != null) {
