@@ -17,6 +17,22 @@ void main() async {
   runApp(QersheenApp(prefs: prefs));
 }
 
+class SavingsGoal {
+  final String id;
+  String title;
+  double targetAmount;
+  double savedAmount;
+  DateTime deadline;
+
+  SavingsGoal({required this.id, required this.title, required this.targetAmount, required this.savedAmount, required this.deadline});
+
+  Map<String, dynamic> toJson() => {'id': id, 'title': title, 'targetAmount': targetAmount, 'savedAmount': savedAmount, 'deadline': deadline.toIso8601String()};
+  factory SavingsGoal.fromJson(Map<String, dynamic> j) => SavingsGoal(
+    id: j['id'], title: j['title'], targetAmount: (j['targetAmount'] as num).toDouble(),
+    savedAmount: (j['savedAmount'] as num).toDouble(), deadline: DateTime.parse(j['deadline']),
+  );
+}
+
 class AppData extends ChangeNotifier {
   final SharedPreferences prefs;
   bool isDarkMode;
@@ -24,6 +40,7 @@ class AppData extends ChangeNotifier {
   bool isAuthenticated = false;
   double dailyBudgetLimit;
   List<UserCardModel> userCards = [];
+  List<SavingsGoal> savingsGoals = [];
   Set<String> processedMessageFingerprints = {};
   final LocalAuthentication _auth = LocalAuthentication();
 
@@ -32,14 +49,13 @@ class AppData extends ChangeNotifier {
         isBiometricEnabled = prefs.getBool('isBioEnabled') ?? false,
         dailyBudgetLimit = prefs.getDouble('dailyLimit') ?? 600.0 {
     _loadCards();
+    _loadGoals();
     _startNotificationListener();
     _checkInitialAuth();
   }
 
   void _checkInitialAuth() {
-    if (!isBiometricEnabled) {
-      isAuthenticated = true;
-    }
+    if (!isBiometricEnabled) isAuthenticated = true;
   }
 
   Future<bool> authenticateUser() async {
@@ -83,34 +99,52 @@ class AppData extends ChangeNotifier {
   }
 
   void _loadCards() {
-    final String? cardsJson = prefs.getString('cardsData_v18');
+    final String? cardsJson = prefs.getString('cardsData_v19');
     if (cardsJson != null && cardsJson.isNotEmpty) {
       final List<dynamic> decoded = jsonDecode(cardsJson);
       userCards = decoded.map((e) => UserCardModel.fromJson(e)).toList();
     } else {
       userCards = [
         UserCardModel(
-          id: 'cash_wallet_main',
-          bankId: 'cash',
-          cardIdentifier: 'محفظة النقود اليدوية',
-          balance: 0.0,
-          transactions: [],
+          id: 'cash_wallet_main', bankId: 'cash',
+          cardIdentifier: 'محفظة النقود اليدوية', balance: 0.0, transactions: [],
         )
       ];
       saveCards();
     }
 
-    final List<String>? fps = prefs.getStringList('processed_fps_v18');
-    if (fps != null) {
-      processedMessageFingerprints = fps.toSet();
+    final List<String>? fps = prefs.getStringList('processed_fps_v19');
+    if (fps != null) processedMessageFingerprints = fps.toSet();
+  }
+
+  void _loadGoals() {
+    final String? goalsJson = prefs.getString('goalsData_v19');
+    if (goalsJson != null && goalsJson.isNotEmpty) {
+      final List<dynamic> decoded = jsonDecode(goalsJson);
+      savingsGoals = decoded.map((e) => SavingsGoal.fromJson(e)).toList();
     }
   }
 
   void saveCards() {
-    final String encoded = jsonEncode(userCards.map((c) => c.toJson()).toList());
-    prefs.setString('cardsData_v18', encoded);
-    prefs.setStringList('processed_fps_v18', processedMessageFingerprints.toList());
+    prefs.setString('cardsData_v19', jsonEncode(userCards.map((c) => c.toJson()).toList()));
+    prefs.setStringList('processed_fps_v19', processedMessageFingerprints.toList());
     notifyListeners();
+  }
+
+  void saveGoals() {
+    prefs.setString('goalsData_v19', jsonEncode(savingsGoals.map((g) => g.toJson()).toList()));
+    notifyListeners();
+  }
+
+  void addGoal(String title, double target, DateTime deadline) {
+    savingsGoals.add(SavingsGoal(id: DateTime.now().millisecondsSinceEpoch.toString(), title: title, targetAmount: target, savedAmount: 0.0, deadline: deadline));
+    saveGoals();
+  }
+
+  void depositToGoal(String id, double amount) {
+    final g = savingsGoals.firstWhere((element) => element.id == id);
+    g.savedAmount += amount;
+    saveGoals();
   }
 
   void addNewCard(BankEntity entity, {String? customId}) {
@@ -121,10 +155,7 @@ class AppData extends ChangeNotifier {
 
     userCards.insert(0, UserCardModel(
       id: '${entity.id}_${DateTime.now().millisecondsSinceEpoch}',
-      bankId: entity.id,
-      cardIdentifier: idStr,
-      balance: 0.0,
-      transactions: [],
+      bankId: entity.id, cardIdentifier: idStr, balance: 0.0, transactions: [],
     ));
     saveCards();
   }
@@ -146,13 +177,7 @@ class AppData extends ChangeNotifier {
     }
 
     cashCard.transactions.insert(0, TransactionItem(
-      name: title,
-      subtitle: 'نقدي (كاش)',
-      date: timeStr,
-      amount: amount,
-      isIncome: isIncome,
-      category: category,
-      txFingerprint: 'cash_${now.millisecondsSinceEpoch}',
+      name: title, subtitle: 'نقدي (كاش)', date: timeStr, amount: amount, isIncome: isIncome, category: category, txFingerprint: 'cash_${now.millisecondsSinceEpoch}',
     ));
     saveCards();
   }
@@ -160,8 +185,6 @@ class AppData extends ChangeNotifier {
   void editTransaction(String cardId, int txIndex, {required String newName, required double newAmount, required String newCategory}) {
     final card = userCards.firstWhere((c) => c.id == cardId);
     final oldTx = card.transactions[txIndex];
-    
-    // ضبط الرصيد بناء على التعديل الجديد
     final diff = newAmount - oldTx.amount;
     if (diff != 0) {
       if (oldTx.isIncome) {
@@ -172,15 +195,17 @@ class AppData extends ChangeNotifier {
     }
 
     card.transactions[txIndex] = TransactionItem(
-      name: newName,
-      subtitle: oldTx.subtitle,
-      date: oldTx.date,
-      amount: newAmount,
-      isIncome: oldTx.isIncome,
-      category: newCategory,
-      txFingerprint: oldTx.txFingerprint,
+      name: newName, subtitle: oldTx.subtitle, date: oldTx.date, amount: newAmount, isIncome: oldTx.isIncome, category: newCategory, txFingerprint: oldTx.txFingerprint,
     );
     saveCards();
+  }
+
+  double getTotalBalance() {
+    double total = 0.0;
+    for (var c in userCards) {
+      total += c.balance;
+    }
+    return total;
   }
 
   double getTodayExpenses() {
@@ -189,12 +214,33 @@ class AppData extends ChangeNotifier {
     final todayStr = '${now.day}/${now.month}/${now.year}';
     for (var card in userCards) {
       for (var tx in card.transactions) {
-        if (!tx.isIncome && tx.date.contains(todayStr)) {
-          sum += tx.amount;
-        }
+        if (!tx.isIncome && tx.date.contains(todayStr)) sum += tx.amount;
       }
     }
     return sum;
+  }
+
+  Map<String, double> getMonthlyInsights() {
+    double totalIncome = 0.0;
+    double totalExpense = 0.0;
+    Map<String, double> categories = {};
+
+    for (var c in userCards) {
+      for (var tx in c.transactions) {
+        if (tx.isIncome) {
+          totalIncome += tx.amount;
+        } else {
+          totalExpense += tx.amount;
+          categories[tx.category] = (categories[tx.category] ?? 0.0) + tx.amount;
+        }
+      }
+    }
+    final savingRate = totalIncome > 0 ? (((totalIncome - totalExpense) / totalIncome) * 100).clamp(0.0, 100.0) : 0.0;
+    return {
+      'income': totalIncome,
+      'expense': totalExpense,
+      'savingRate': savingRate,
+    };
   }
 
   Future<void> exportCsvReport() async {
@@ -216,25 +262,26 @@ class AppData extends ChangeNotifier {
   void clearAll() {
     userCards.clear();
     processedMessageFingerprints.clear();
+    savingsGoals.clear();
     userCards.add(UserCardModel(id: 'cash_wallet_main', bankId: 'cash', cardIdentifier: 'محفظة النقود اليدوية', balance: 0.0, transactions: []));
     saveCards();
+    saveGoals();
   }
 
   Future<void> exportEncryptedBackup() async {
     final payload = {
-      'version': '1.0',
+      'version': '2.0',
       'exportDate': DateTime.now().toIso8601String(),
       'cards': userCards.map((c) => c.toJson()).toList(),
+      'goals': savingsGoals.map((g) => g.toJson()).toList(),
       'fps': processedMessageFingerprints.toList(),
     };
     final jsonStr = jsonEncode(payload);
-    final bytes = utf8.encode(jsonStr);
-    final encodedBase64 = base64Encode(bytes);
+    final encodedBase64 = base64Encode(utf8.encode(jsonStr));
 
     final dir = Directory.systemTemp;
     final file = File('${dir.path}/qersheen_backup_${DateTime.now().millisecondsSinceEpoch}.qersh');
     await file.writeAsString(encodedBase64);
-
     await Share.shareXFiles([XFile(file.path)], text: 'نسخة احتياطية مشفرة لمحفظة قرشين المالية');
   }
 
@@ -245,17 +292,21 @@ class AppData extends ChangeNotifier {
 
       final file = File(result.files.single.path!);
       final content = await file.readAsString();
-      final decodedBytes = base64Decode(content.trim());
-      final jsonStr = utf8.decode(decodedBytes);
+      final jsonStr = utf8.decode(base64Decode(content.trim()));
       final Map<String, dynamic> data = jsonDecode(jsonStr);
 
       if (data.containsKey('cards')) {
         final List<dynamic> cardsList = data['cards'];
         userCards = cardsList.map((e) => UserCardModel.fromJson(e)).toList();
+        if (data.containsKey('goals')) {
+          final List<dynamic> gList = data['goals'];
+          savingsGoals = gList.map((e) => SavingsGoal.fromJson(e)).toList();
+        }
         if (data.containsKey('fps')) {
           processedMessageFingerprints = (data['fps'] as List).map((e) => e.toString()).toSet();
         }
         saveCards();
+        saveGoals();
         return true;
       }
     } catch (_) {}
@@ -274,9 +325,7 @@ class AppData extends ChangeNotifier {
     }
     List<TransactionItem> recurring = [];
     grouped.forEach((key, list) {
-      if (list.length >= 2) {
-        recurring.add(list.first);
-      }
+      if (list.length >= 2) recurring.add(list.first);
     });
     return recurring;
   }
@@ -437,13 +486,7 @@ class AppData extends ChangeNotifier {
         }
 
         card.transactions.insert(0, TransactionItem(
-          name: title, 
-          subtitle: sub, 
-          date: timeStr, 
-          amount: amt, 
-          isIncome: isIncome,
-          category: category,
-          txFingerprint: fingerprint,
+          name: title, subtitle: sub, date: timeStr, amount: amt, isIncome: isIncome, category: category, txFingerprint: fingerprint,
         ));
         processedMessageFingerprints.add(fingerprint);
         saveCards();
@@ -577,6 +620,8 @@ class _MainLayoutScreenState extends State<MainLayoutScreen> {
     final isDark = widget.appData.isDarkMode;
     final pages = [
       AppleWalletScreen(appData: widget.appData),
+      SavingsGoalsView(appData: widget.appData),
+      FeeCalculatorView(appData: widget.appData),
       SubscriptionsView(appData: widget.appData),
       SettingsTabView(appData: widget.appData)
     ];
@@ -593,8 +638,10 @@ class _MainLayoutScreenState extends State<MainLayoutScreen> {
           mainAxisAlignment: MainAxisAlignment.spaceAround,
           children: [
             _barItem(0, Icons.wallet_rounded, 'المحفظة'),
-            _barItem(1, Icons.autorenew_rounded, 'الاشتراكات'),
-            _barItem(2, Icons.tune_rounded, 'الإعدادات والنسخ'),
+            _barItem(1, Icons.savings_rounded, 'الأهداف'),
+            _barItem(2, Icons.calculate_rounded, 'الحاسبة'),
+            _barItem(3, Icons.autorenew_rounded, 'الاشتراكات'),
+            _barItem(4, Icons.tune_rounded, 'الإعدادات'),
           ],
         ),
       ),
@@ -617,9 +664,9 @@ class _MainLayoutScreenState extends State<MainLayoutScreen> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, color: c, size: 24),
+          Icon(icon, color: c, size: 22),
           const SizedBox(height: 3),
-          Text(label, style: TextStyle(color: c, fontSize: 11, fontWeight: FontWeight.bold)),
+          Text(label, style: TextStyle(color: c, fontSize: 10, fontWeight: FontWeight.bold)),
         ],
       ),
     );
@@ -653,7 +700,7 @@ class _MainLayoutScreenState extends State<MainLayoutScreen> {
                 ],
               ),
               const SizedBox(height: 12),
-              TextField(controller: titleCtrl, decoration: const InputDecoration(labelText: 'اسم البند / المحل (مثلاً: تاكسي، سوبرماركت)', border: OutlineInputBorder())),
+              TextField(controller: titleCtrl, decoration: const InputDecoration(labelText: 'اسم البند / المتجر', border: OutlineInputBorder())),
               const SizedBox(height: 12),
               TextField(controller: amtCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'المبلغ بالجنيه', border: OutlineInputBorder())),
               const SizedBox(height: 16),
@@ -743,47 +790,70 @@ class _AppleWalletScreenState extends State<AppleWalletScreen> {
     final isDark = widget.appData.isDarkMode;
     final todaySpent = widget.appData.getTodayExpenses();
     final isBudgetExceeded = todaySpent > widget.appData.dailyBudgetLimit;
+    final insights = widget.appData.getMonthlyInsights();
 
     return SafeArea(
       child: Column(
         children: [
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text('المحفظة', style: TextStyle(fontSize: 30, fontWeight: FontWeight.w900, letterSpacing: -0.5)),
-                Row(
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    IconButton(
-                      icon: const Icon(Icons.sync_rounded, color: Colors.blueAccent, size: 28),
-                      tooltip: 'مزامنة دقيقة',
-                      onPressed: () async {
-                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('مزامنة مرتبة زمنياً وتحديث للأرصدة...')));
-                        await widget.appData.autoDetectChronological();
-                        if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تمت مزامنة الرسائل بدقة')));
-                        }
-                      },
-                    ),
+                    const Text('المحفظة', style: TextStyle(fontSize: 28, fontWeight: FontWeight.w900, letterSpacing: -0.5)),
+                    Text('إجمالي الرصيد: ${widget.appData.getTotalBalance().toStringAsFixed(0)} ج.م', style: const TextStyle(color: Colors.grey, fontSize: 12)),
                   ],
                 ),
+                IconButton(
+                  icon: const Icon(Icons.sync_rounded, color: Colors.blueAccent, size: 28),
+                  tooltip: 'مزامنة دقيقة',
+                  onPressed: () async {
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('مزامنة تسلسلية وتحديث للأرصدة...')));
+                    await widget.appData.autoDetectChronological();
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تمت مزامنة الرسائل بدقة')));
+                    }
+                  },
+                ),
+              ],
+            ),
+          ),
+          // كارت التحليل المالي الذكي (Monthly Insights Banner)
+          Container(
+            margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(colors: [Colors.teal.shade900.withOpacity(0.5), Colors.blueGrey.shade900.withOpacity(0.5)]),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: Colors.teal.withOpacity(0.3)),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceAround,
+              children: [
+                Column(children: [const Text('معدل التوفير', style: TextStyle(color: Colors.grey, fontSize: 11)), Text('${insights['savingRate']!.toStringAsFixed(0)}%', style: const TextStyle(fontWeight: FontWeight.w900, color: Colors.tealAccent, fontSize: 16))]),
+                Container(width: 1, height: 28, color: Colors.white24),
+                Column(children: [const Text('إجمالي الدخل', style: TextStyle(color: Colors.grey, fontSize: 11)), Text('${insights['income']!.toStringAsFixed(0)} ج.م', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.greenAccent, fontSize: 14))]),
+                Container(width: 1, height: 28, color: Colors.white24),
+                Column(children: [const Text('المصروفات', style: TextStyle(color: Colors.grey, fontSize: 11)), Text('${insights['expense']!.toStringAsFixed(0)} ج.م', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.redAccent, fontSize: 14))]),
               ],
             ),
           ),
           if (isBudgetExceeded)
             Container(
-              margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
               decoration: BoxDecoration(color: Colors.redAccent.withOpacity(0.15), borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.redAccent)),
               child: Row(
                 children: [
-                  const Icon(Icons.warning_amber_rounded, color: Colors.redAccent),
+                  const Icon(Icons.warning_amber_rounded, color: Colors.redAccent, size: 20),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      'تنبيه: تجاوزت سقف الميزانية اليومي! مصروفك اليوم: ${todaySpent.toStringAsFixed(0)} ج.م من أصل ${widget.appData.dailyBudgetLimit.toStringAsFixed(0)} ج.م',
-                      style: const TextStyle(color: Colors.redAccent, fontSize: 12, fontWeight: FontWeight.bold),
+                      'تنبيه: تجاوزت سقف الميزانية اليومي! (${todaySpent.toStringAsFixed(0)} / ${widget.appData.dailyBudgetLimit.toStringAsFixed(0)} ج.م)',
+                      style: const TextStyle(color: Colors.redAccent, fontSize: 11, fontWeight: FontWeight.bold),
                     ),
                   ),
                 ],
@@ -803,7 +873,6 @@ class _AppleWalletScreenState extends State<AppleWalletScreen> {
               onChanged: (val) => setState(() => searchQuery = val.trim().toLowerCase()),
             ),
           ),
-          const SizedBox(height: 8),
           Expanded(
             child: SingleChildScrollView(
               padding: const EdgeInsets.only(bottom: 80),
@@ -1002,6 +1071,197 @@ class _AppleWalletScreenState extends State<AppleWalletScreen> {
   }
 }
 
+// ================= شاشة أهداف التوفير والجمعيات =================
+class SavingsGoalsView extends StatelessWidget {
+  final AppData appData;
+  const SavingsGoalsView({super.key, required this.appData});
+
+  void _showAddGoalDialog(BuildContext context) {
+    final titleCtrl = TextEditingController();
+    final targetCtrl = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('إضافة هدف توفير جديد'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(controller: titleCtrl, decoration: const InputDecoration(labelText: 'اسم الهدف (مثل: جمعية، لابتوب)')),
+            const SizedBox(height: 10),
+            TextField(controller: targetCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'المبلغ المستهدف (ج.م)')),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('إلغاء')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF10B981)),
+            onPressed: () {
+              final t = double.tryParse(targetCtrl.text);
+              if (t != null && t > 0 && titleCtrl.text.isNotEmpty) {
+                appData.addGoal(titleCtrl.text, t, DateTime.now().add(const Duration(days: 90)));
+                Navigator.pop(ctx);
+              }
+            },
+            child: const Text('إنشاء', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showDepositDialog(BuildContext context, SavingsGoal g) {
+    final amtCtrl = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('إيداع في: ${g.title}'),
+        content: TextField(controller: amtCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'المبلغ المودع')),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('إلغاء')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF10B981)),
+            onPressed: () {
+              final a = double.tryParse(amtCtrl.text);
+              if (a != null && a > 0) {
+                appData.depositToGoal(g.id, a);
+                Navigator.pop(ctx);
+              }
+            },
+            child: const Text('إيداع', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = appData.isDarkMode;
+    final goals = appData.savingsGoals;
+
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text('أهداف التوفير والجمعيات', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+                IconButton(icon: const Icon(Icons.add_circle, color: Color(0xFF10B981), size: 30), onPressed: () => _showAddGoalDialog(context)),
+              ],
+            ),
+            const SizedBox(height: 6),
+            const Text('حصالات مخصصة لتحقيق أهدافك المالية ومتابعة الأقساط', style: TextStyle(color: Colors.grey, fontSize: 12)),
+            const SizedBox(height: 16),
+            Expanded(
+              child: goals.isEmpty
+                  ? const Center(child: Text('لا توجد أهداف توفير حالية، اضغط + لإنشاء هدف جديد', style: TextStyle(color: Colors.grey)))
+                  : ListView.builder(
+                      itemCount: goals.length,
+                      itemBuilder: (ctx, i) {
+                        final g = goals[i];
+                        final progress = (g.savedAmount / g.targetAmount).clamp(0.0, 1.0);
+                        return Container(
+                          margin: const EdgeInsets.only(bottom: 12),
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(color: isDark ? const Color(0xFF1C1C1E) : Colors.white, borderRadius: BorderRadius.circular(16)),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text(g.title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                                  IconButton(icon: const Icon(Icons.add_box_rounded, color: Color(0xFF10B981)), onPressed: () => _showDepositDialog(context, g)),
+                                ],
+                              ),
+                              Text('${g.savedAmount.toStringAsFixed(0)} من أصل ${g.targetAmount.toStringAsFixed(0)} ج.م', style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                              const SizedBox(height: 8),
+                              LinearProgressIndicator(value: progress, minHeight: 8, backgroundColor: Colors.grey.withOpacity(0.2), valueColor: const AlwaysStoppedAnimation(Color(0xFF10B981))),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ================= شاشة حاسبة الرسوم =================
+class FeeCalculatorView extends StatefulWidget {
+  final AppData appData;
+  const FeeCalculatorView({super.key, required this.appData});
+
+  @override
+  State<FeeCalculatorView> createState() => _FeeCalculatorViewState();
+}
+
+class _FeeCalculatorViewState extends State<FeeCalculatorView> {
+  final amtCtrl = TextEditingController();
+  double calculatedFee = 0.0;
+  String feeType = 'atm_wallet';
+
+  void _calculate() {
+    final amt = double.tryParse(amtCtrl.text) ?? 0.0;
+    setState(() {
+      if (feeType == 'atm_wallet') {
+        calculatedFee = amt * 0.01; // 1% عمولة سحب محفظة من ATM
+      } else if (feeType == 'wallet_to_wallet') {
+        calculatedFee = amt > 0 ? 1.0 : 0.0; // رسوم تحويل محفظة لأخرى
+      } else {
+        calculatedFee = 0.0; // إنستاباي مجاني
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('حاسبة رسوم التحويل والسحب', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 6),
+            const Text('احسب عمولة السحب والتحويل مسبقاً قبل تنفيذ المعاملة', style: TextStyle(color: Colors.grey, fontSize: 12)),
+            const SizedBox(height: 20),
+            TextField(controller: amtCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'المبلغ المطلوب سحبه أو تحويله', border: OutlineInputBorder()), onChanged: (_) => _calculate()),
+            const SizedBox(height: 14),
+            Wrap(
+              spacing: 8,
+              children: [
+                ChoiceChip(label: const Text('سحب محفظة من ATM (1%)'), selected: feeType == 'atm_wallet', onSelected: (_) { setState(() => feeType = 'atm_wallet'); _calculate(); }),
+                ChoiceChip(label: const Text('تحويل إنستاباي (0%)'), selected: feeType == 'instapay', onSelected: (_) { setState(() => feeType = 'instapay'); _calculate(); }),
+                ChoiceChip(label: const Text('تحويل محفظة لأخرى'), selected: feeType == 'wallet_to_wallet', onSelected: (_) { setState(() => feeType = 'wallet_to_wallet'); _calculate(); }),
+              ],
+            ),
+            const SizedBox(height: 24),
+            Container(
+              padding: const EdgeInsets.all(20),
+              decoration: BoxDecoration(color: widget.appData.isDarkMode ? const Color(0xFF1C1C1E) : Colors.white, borderRadius: BorderRadius.circular(16)),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text('الرسوم المتوقعة:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                  Text('${calculatedFee.toStringAsFixed(2)} ج.م', style: const TextStyle(fontWeight: FontWeight.w900, color: Colors.redAccent, fontSize: 20)),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class SubscriptionsView extends StatelessWidget {
   final AppData appData;
   const SubscriptionsView({super.key, required this.appData});
@@ -1017,10 +1277,10 @@ class SubscriptionsView extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('الاشتراكات والالتزامات المتكررة', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+            const Text('الاشتراكات والالتزامات المتكررة', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
             const SizedBox(height: 6),
             const Text('رصد ذكي تلقائي للفواتير والاشتراكات الشهرية المتكررة بحساباتك', style: TextStyle(color: Colors.grey, fontSize: 12)),
-            const SizedBox(height: 20),
+            const SizedBox(height: 16),
             Expanded(
               child: subs.isEmpty
                   ? const Center(child: Text('لم يتم رصد اشتراكات دورية متكررة بعد', style: TextStyle(color: Colors.grey)))
