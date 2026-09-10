@@ -5,7 +5,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:flutter_sms_inbox/flutter_sms_inbox.dart';
-import 'package:notification_listener_service/notification_listener_service.dart';
 import 'package:local_auth/local_auth.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:share_plus/share_plus.dart';
@@ -68,13 +67,24 @@ class AppData extends ChangeNotifier {
         isBiometricEnabled = prefs.getBool('isBioEnabled') ?? false,
         language = prefs.getString('app_lang') ?? 'ar' {
     _loadAll();
-    _startNotificationListener();
     _checkInitialAuth();
   }
 
   void _checkInitialAuth() {
     if (!isBiometricEnabled) isAuthenticated = true;
   }
+
+  // ================= طلب الصلاحيات الأساسية للرسائل =================
+  Future<void> initializePermissions() async {
+    if (!(await Permission.sms.isGranted)) {
+      await Permission.sms.request();
+    }
+    // تحديث الأرصدة فور الموافقة على الصلاحية
+    if (await Permission.sms.isGranted) {
+      autoDetectChronological();
+    }
+  }
+  // =======================================================
 
   void toggleLanguage() {
     language = language == 'ar' ? 'en' : 'ar';
@@ -116,7 +126,7 @@ class AppData extends ChangeNotifier {
   }
 
   void _loadAll() {
-    final String? cardsJson = prefs.getString('cardsData_v26');
+    final String? cardsJson = prefs.getString('cardsData_v27');
     if (cardsJson != null && cardsJson.isNotEmpty) {
       final List<dynamic> decoded = jsonDecode(cardsJson);
       userCards = decoded.map((e) => UserCardModel.fromJson(e)).toList();
@@ -130,13 +140,13 @@ class AppData extends ChangeNotifier {
       saveCards();
     }
 
-    final String? instJson = prefs.getString('installments_v26');
+    final String? instJson = prefs.getString('installments_v27');
     if (instJson != null && instJson.isNotEmpty) {
       final List<dynamic> decInst = jsonDecode(instJson);
       installments = decInst.map((e) => InstallmentModel.fromJson(e)).toList();
     }
 
-    final String? budJson = prefs.getString('catBudgets_v26');
+    final String? budJson = prefs.getString('catBudgets_v27');
     if (budJson != null && budJson.isNotEmpty) {
       final Map<String, dynamic> decBud = jsonDecode(budJson);
       categoryBudgets = decBud.map((k, v) => MapEntry(k, (v as num).toDouble()));
@@ -145,23 +155,23 @@ class AppData extends ChangeNotifier {
       saveCategoryBudgets();
     }
 
-    final List<String>? fps = prefs.getStringList('processed_fps_v26');
+    final List<String>? fps = prefs.getStringList('processed_fps_v27');
     if (fps != null) processedMessageFingerprints = fps.toSet();
   }
 
   void saveCards() {
-    prefs.setString('cardsData_v26', jsonEncode(userCards.map((c) => c.toJson()).toList()));
-    prefs.setStringList('processed_fps_v26', processedMessageFingerprints.toList());
+    prefs.setString('cardsData_v27', jsonEncode(userCards.map((c) => c.toJson()).toList()));
+    prefs.setStringList('processed_fps_v27', processedMessageFingerprints.toList());
     notifyListeners();
   }
 
   void saveInstallments() {
-    prefs.setString('installments_v26', jsonEncode(installments.map((i) => i.toJson()).toList()));
+    prefs.setString('installments_v27', jsonEncode(installments.map((i) => i.toJson()).toList()));
     notifyListeners();
   }
 
   void saveCategoryBudgets() {
-    prefs.setString('catBudgets_v26', jsonEncode(categoryBudgets));
+    prefs.setString('catBudgets_v27', jsonEncode(categoryBudgets));
     notifyListeners();
   }
 
@@ -281,15 +291,6 @@ class AppData extends ChangeNotifier {
     await Printing.sharePdf(bytes: await pdf.save(), filename: 'qersheen_statement.pdf');
   }
 
-  void _startNotificationListener() {
-    try {
-      NotificationListenerService.notificationsStream.listen((event) {
-        final bank = EgyptInstitutions.matchSender(event.title ?? '');
-        if (bank != null) _processMessage(bank, '${event.title} ${event.content}', DateTime.now(), null);
-      });
-    } catch (_) {}
-  }
-
   Future<void> autoDetectChronological() async {
     try {
       if (!(await Permission.sms.request().isGranted)) return;
@@ -299,6 +300,7 @@ class AppData extends ChangeNotifier {
         final bank = EgyptInstitutions.matchSender(msg.address ?? '');
         if (bank != null) _processMessage(bank, msg.body ?? '', msg.date ?? DateTime.now(), msg.id.toString());
       }
+      notifyListeners();
     } catch (_) {}
   }
 
@@ -327,7 +329,6 @@ class AppData extends ChangeNotifier {
     if (!isIncome && !isExpense) return;
 
     String extractedName = 'معاملة مالية';
-    // تنظيف الذكاء الاصطناعي من الكلمات الزائدة والترويجية
     final nameMatch = RegExp(r'(?:لـ|إلى|من|لدى|في|to|from)\s+([A-Za-z\u0621-\u064A0-9\s\.\-]{3,25})').firstMatch(text);
     if (nameMatch != null) {
       String rawName = nameMatch.group(1)!;
@@ -444,6 +445,14 @@ class _MainLayoutScreenState extends State<MainLayoutScreen> {
   int _tab = 0;
 
   @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      widget.appData.initializePermissions();
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
     final pages = [AppleWalletScreen(appData: widget.appData), InstallmentsView(appData: widget.appData), CategoryBudgetsView(appData: widget.appData), SettingsTabView(appData: widget.appData)];
     final isDark = widget.appData.isDarkMode;
@@ -537,7 +546,13 @@ class _AppleWalletScreenState extends State<AppleWalletScreen> {
                     Text('الإجمالي: ${widget.appData.getTotalBalance().toStringAsFixed(0)} EGP', style: const TextStyle(color: Colors.grey, fontSize: 14)),
                   ],
                 ),
-                IconButton(icon: const Icon(Icons.sync_rounded, color: Colors.blueAccent, size: 28), onPressed: () => widget.appData.autoDetectChronological()),
+                IconButton(
+                  icon: const Icon(Icons.sync_rounded, color: Colors.blueAccent, size: 28), 
+                  onPressed: () {
+                    widget.appData.autoDetectChronological();
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تم مزامنة رسائل الـ SMS بنجاح')));
+                  }
+                ),
               ],
             ),
           ),
