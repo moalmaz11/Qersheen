@@ -37,12 +37,14 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
-      - name: Fix telephony namespace for AGP 8+
+      - name: Fix plugins namespaces for AGP 8+
         run: |
-          TELEPHONY_DIR=$(find /home/runner/.pub-cache/hosted/pub.dev -name "telephony-*" | head -n 1)
-          if [ -d "$TELEPHONY_DIR/android" ]; then
-            sed -i '/android {/a \    namespace "com.shounakmulay.telephony"' "$TELEPHONY_DIR/android/build.gradle"
-          fi
+          for dir in /home/runner/.pub-cache/hosted/pub.dev/telephony-* /home/runner/.pub-cache/hosted/pub.dev/notification_listener_service-*; do
+            if [ -d "$dir/android" ]; then
+              pkg=$(basename "$dir" | cut -d'-' -f1)
+              sed -i "/android {/a \    namespace \"com.plugin.$pkg\"" "$dir/android/build.gradle" 2>/dev/null || true
+            fi
+          done
 
       - name: Build APK
         run: flutter build apk --release
