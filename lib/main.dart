@@ -18,6 +18,7 @@ class AppData extends ChangeNotifier {
   bool isDarkMode;
   double dailyBudgetLimit;
   List<UserCardModel> userCards = [];
+  Set<String> processedMessageFingerprints = {};
 
   AppData(this.prefs)
       : isDarkMode = prefs.getBool('isDark') ?? true,
@@ -33,16 +34,21 @@ class AppData extends ChangeNotifier {
   }
 
   void _loadCards() {
-    final String? cardsJson = prefs.getString('cardsData_v14');
+    final String? cardsJson = prefs.getString('cardsData_v15');
     if (cardsJson != null && cardsJson.isNotEmpty) {
       final List<dynamic> decoded = jsonDecode(cardsJson);
       userCards = decoded.map((e) => UserCardModel.fromJson(e)).toList();
+    }
+    final List<String>? fps = prefs.getStringList('processed_fps_v15');
+    if (fps != null) {
+      processedMessageFingerprints = fps.toSet();
     }
   }
 
   void saveCards() {
     final String encoded = jsonEncode(userCards.map((c) => c.toJson()).toList());
-    prefs.setString('cardsData_v14', encoded);
+    prefs.setString('cardsData_v15', encoded);
+    prefs.setStringList('processed_fps_v15', processedMessageFingerprints.toList());
     notifyListeners();
   }
 
@@ -64,6 +70,7 @@ class AppData extends ChangeNotifier {
 
   void clearAll() {
     userCards.clear();
+    processedMessageFingerprints.clear();
     saveCards();
   }
 
@@ -74,10 +81,14 @@ class AppData extends ChangeNotifier {
         final content = event.content ?? '';
         final bank = EgyptInstitutions.matchSender(title);
         if (bank != null) {
-          _processMessage(bank, '$title $content', DateTime.now());
+          _processMessage(bank, '$title $content', DateTime.now(), null);
         }
       });
     } catch (_) {}
+  }
+
+  Future<void> requestBatteryOptimizationIgnore() async {
+    await Permission.ignoreBatteryOptimizations.request();
   }
 
   Future<int> autoDetectChronological() async {
@@ -86,13 +97,32 @@ class AppData extends ChangeNotifier {
       final status = await Permission.sms.request();
       if (!status.isGranted) return -1;
 
-      final messages = await SmsQuery().querySms(kinds: [SmsQueryKind.inbox]);
-      messages.sort((a, b) => (a.date ?? DateTime.now()).compareTo(b.date ?? DateTime.now()));
+      final rawMessages = await SmsQuery().querySms(kinds: [SmsQueryKind.inbox]);
+      rawMessages.sort((a, b) => (a.date ?? DateTime.now()).compareTo(b.date ?? DateTime.now()));
 
-      for (var msg in messages) {
-        final bank = EgyptInstitutions.matchSender(msg.address ?? '');
+      // تجميع ومعالجة الرسائل المقسمة (Multipart SMS Stitching)
+      List<_StitchedSMS> stitched = [];
+      _StitchedSMS? current;
+
+      for (var msg in rawMessages) {
+        final sender = msg.address ?? '';
+        final body = msg.body ?? '';
+        final date = msg.date ?? DateTime.now();
+
+        if (current != null && current.sender == sender && date.difference(current.date).inSeconds.abs() <= 3) {
+          current.body += ' $body';
+          current.ids.add(msg.id.toString());
+        } else {
+          if (current != null) stitched.add(current);
+          current = _StitchedSMS(sender: sender, body: body, date: date, ids: [msg.id.toString()]);
+        }
+      }
+      if (current != null) stitched.add(current);
+
+      for (var s in stitched) {
+        final bank = EgyptInstitutions.matchSender(s.sender);
         if (bank != null) {
-          _processMessage(bank, msg.body ?? '', msg.date ?? DateTime.now());
+          _processMessage(bank, s.body, s.date, s.ids.join('_'));
           count++;
         }
       }
@@ -100,9 +130,11 @@ class AppData extends ChangeNotifier {
     return count;
   }
 
-  void _processMessage(BankEntity bank, String rawText, DateTime timestamp) {
+  void _processMessage(BankEntity bank, String rawText, DateTime timestamp, String? uniqueSmsId) {
     final text = rawText.replaceAll('\n', ' ').trim();
+    final fingerprint = uniqueSmsId ?? '${bank.id}_${timestamp.millisecondsSinceEpoch}_${text.hashCode}';
 
+    // 1. تحديد المعرف ورقم الحساب/المحفظة
     String? phone;
     if (bank.entityType == EntityType.wallet) {
       final p = RegExp(r'(?:محفظتك|لرقم|على رقم)?\s*(01[0125][0-9]{8})').firstMatch(text);
@@ -127,6 +159,7 @@ class AppData extends ChangeNotifier {
       saveCards();
     }
 
+    // 2. تحديث الرصيد حصرياً عند وجود نص صريح ومباشر
     final balMatch = RegExp(
       r'(?:رصيد(?:ك| حسابك)? (?:الحالي|المتاح)|رصيد محفظتك الحالي|current .*?balance is|balance is)\s*[:=]?\s*(\d+(?:\.\d{1,2})?)',
       caseSensitive: false,
@@ -144,6 +177,10 @@ class AppData extends ChangeNotifier {
         (text.startsWith('رصيد حسابك') && !text.contains('تم دفع') && !text.contains('تم تحويل') && !text.contains('تم استلام'));
     if (isInquiry) return;
 
+    // 3. منع التكرار القاطع
+    if (processedMessageFingerprints.contains(fingerprint)) return;
+
+    // 4. تحليل المعاملة والطرف
     String title = 'معاملة مالية';
     String? sub;
     bool isIncome = false;
@@ -181,14 +218,28 @@ class AppData extends ChangeNotifier {
       final amt = double.tryParse(amtMatch.group(1)!);
       if (amt != null && amt > 0 && amt != card.balance) {
         final timeStr = '${timestamp.hour.toString().padLeft(2, '0')}:${timestamp.minute.toString().padLeft(2, '0')} • ${timestamp.day}/${timestamp.month}/${timestamp.year}';
-        final isDup = card.transactions.any((t) => t.amount == amt && t.name == title && t.date == timeStr);
-        if (!isDup) {
-          card.transactions.insert(0, TransactionItem(name: title, subtitle: sub, date: timeStr, amount: amt, isIncome: isIncome));
-          saveCards();
-        }
+        
+        card.transactions.insert(0, TransactionItem(
+          name: title, 
+          subtitle: sub, 
+          date: timeStr, 
+          amount: amt, 
+          isIncome: isIncome,
+          txFingerprint: fingerprint,
+        ));
+        processedMessageFingerprints.add(fingerprint);
+        saveCards();
       }
     }
   }
+}
+
+class _StitchedSMS {
+  final String sender;
+  String body;
+  final DateTime date;
+  final List<String> ids;
+  _StitchedSMS({required this.sender, required this.body, required this.date, required this.ids});
 }
 
 class UserCardModel {
@@ -213,11 +264,12 @@ class TransactionItem {
   final String date;
   final double amount;
   final bool isIncome;
+  final String? txFingerprint;
 
-  TransactionItem({required this.name, this.subtitle, required this.date, required this.amount, required this.isIncome});
-  Map<String, dynamic> toJson() => {'name': name, 'subtitle': subtitle, 'date': date, 'amount': amount, 'isIncome': isIncome};
+  TransactionItem({required this.name, this.subtitle, required this.date, required this.amount, required this.isIncome, this.txFingerprint});
+  Map<String, dynamic> toJson() => {'name': name, 'subtitle': subtitle, 'date': date, 'amount': amount, 'isIncome': isIncome, 'txFingerprint': txFingerprint};
   factory TransactionItem.fromJson(Map<String, dynamic> j) => TransactionItem(
-    name: j['name'], subtitle: j['subtitle'], date: j['date'], amount: (j['amount'] as num).toDouble(), isIncome: j['isIncome'],
+    name: j['name'], subtitle: j['subtitle'], date: j['date'], amount: (j['amount'] as num).toDouble(), isIncome: j['isIncome'], txFingerprint: j['txFingerprint'],
   );
 }
 
@@ -327,12 +379,22 @@ class _AppleWalletScreenState extends State<AppleWalletScreen> {
                     children: [
                       IconButton(
                         icon: const Icon(Icons.sync_rounded, color: Colors.blueAccent, size: 28),
-                        tooltip: 'مزامنة دقيقة',
+                        tooltip: 'مزامنة دقيقة بدون تكرار',
                         onPressed: () async {
-                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('مزامنة مرتبة زمنياً وتحديث للأرصدة...')));
+                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('مزامنة تسلسلية دقيقة لمنع التكرار وتحديث الأرصدة...')));
                           await widget.appData.autoDetectChronological();
                           if (context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تمت مزامنة الرسائل بدقة')));
+                            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تمت مزامنة المعاملات بأمان')));
+                          }
+                        },
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.battery_charging_full_rounded, color: Colors.amber, size: 26),
+                        tooltip: 'استثناء البطارية للعمل بالخلفية',
+                        onPressed: () async {
+                          await widget.appData.requestBatteryOptimizationIgnore();
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تم ضبط صلاحيات العمل بالخلفية')));
                           }
                         },
                       ),
