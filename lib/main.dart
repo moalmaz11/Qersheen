@@ -5,15 +5,16 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:flutter_sms_inbox/flutter_sms_inbox.dart';
 import 'package:notification_listener_service/notification_listener_service.dart';
+import 'ai_engine.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final prefs = await SharedPreferences.getInstance();
+  await OnDeviceFinanceAI.initialize();
   runApp(QersheenApp(prefs: prefs));
 }
 
 enum EntityType { bank, wallet }
-enum TransactionType { atm, purchase, transferOut, transferIn, deposit, generic }
 
 class BankEntity {
   final String id, name, type, acronym;
@@ -176,7 +177,7 @@ class AppData extends ChangeNotifier {
   }
 
   void _loadCards() {
-    final String? cardsJson = prefs.getString('cardsData_v8');
+    final String? cardsJson = prefs.getString('cardsData_v10');
     if (cardsJson != null && cardsJson.isNotEmpty) {
       final List<dynamic> decoded = jsonDecode(cardsJson);
       userCards = decoded.map((e) => UserCardModel.fromJson(e)).toList();
@@ -187,7 +188,7 @@ class AppData extends ChangeNotifier {
 
   void _saveCards() {
     final String encoded = jsonEncode(userCards.map((c) => c.toJson()).toList());
-    prefs.setString('cardsData_v8', encoded);
+    prefs.setString('cardsData_v10', encoded);
   }
 
   void addNewCard(BankEntity entity, {String? customIdentifier, double initialBalance = 0.0}) {
@@ -254,165 +255,66 @@ class AppData extends ChangeNotifier {
 
         final matchedBank = EgyptInstitutions.matchSender(title);
         if (matchedBank != null) {
-          _processMessageOrNotification(matchedBank, fullText, title, DateTime.now());
+          _processWithAI(matchedBank, fullText, DateTime.now());
         }
       });
     } catch (_) {}
   }
 
-  void _processMessageOrNotification(BankEntity matchedBank, String body, String source, DateTime date) {
-    // 1. استخراج رقم محفظة المستخدم الخاصة إذا وُجد
-    String? myWalletPhone;
-    final myPhoneMatch = RegExp(r'(?:على رقم محفظتك|محفظتك)\s*(01[0125][0-9]{8})').firstMatch(body);
-    if (myPhoneMatch != null) {
-      myWalletPhone = myPhoneMatch.group(1);
-    }
-
-    // 2. استخراج رقم الحساب المنتهي بـ (للبنوك)
-    String? myBankAcc;
-    final accMatch = RegExp(r'(?:حسابك المنتهي بـ|بطاقتك المنتهية بـ)\s*(?:\*+)?(\d{4})').firstMatch(body);
-    if (accMatch != null) {
-      myBankAcc = '•••• ${accMatch.group(1)}';
-    }
+  void _processWithAI(BankEntity matchedBank, String body, DateTime date) {
+    final res = OnDeviceFinanceAI.analyzeContext(body, isWallet: matchedBank.entityType == EntityType.wallet);
 
     if (!userCards.any((c) => c.bankId == matchedBank.id)) {
-      addNewCard(matchedBank, customIdentifier: myWalletPhone ?? myBankAcc);
+      addNewCard(matchedBank, customIdentifier: res.userIdentifier);
     }
 
     final card = userCards.firstWhere((c) => c.bankId == matchedBank.id);
 
-    if (myWalletPhone != null && card.cardIdentifier.contains('X')) {
-      card.cardIdentifier = myWalletPhone;
-      _saveCards();
-    } else if (myBankAcc != null && card.cardIdentifier.startsWith('•••• 0')) {
-      card.cardIdentifier = myBankAcc;
-      _saveCards();
-    }
-
-    // 3. استخراج الرصيد المتبقي الفعلي المذكور بالرسالة
-    final balMatch = RegExp(
-      r'(?:رصيد(?:ك| حسابك(?: فى فودافون كاش)?)? الحالي|رصيد محفظتك الحالي|balance is)\s*[:=]?\s*(\d+(?:[\.,]\d{1,2})?)',
-      caseSensitive: false
-    ).firstMatch(body);
-
-    if (balMatch != null) {
-      final rawBal = balMatch.group(1)!.replaceAll(',', '');
-      final actualBal = double.tryParse(rawBal);
-      if (actualBal != null) {
-        setCardBalance(card.id, actualBal);
+    if (res.userIdentifier != null) {
+      if (matchedBank.entityType == EntityType.wallet && card.cardIdentifier.contains('X')) {
+        card.cardIdentifier = res.userIdentifier!;
+        _saveCards();
+      } else if (matchedBank.entityType == EntityType.bank && card.cardIdentifier.startsWith('•••• 0')) {
+        card.cardIdentifier = res.userIdentifier!;
+        _saveCards();
       }
     }
 
-    // فحص إذا كانت رسالة استعلام رصيد فقط (Balance Inquiry Only)
-    final isBalanceOnly = body.contains('Vodafone Cash balance is') && !body.contains('transferred') && !body.contains('were successfully')
-        || (body.startsWith('رصيد حسابك') && !body.contains('تم دفع') && !body.contains('تم تحويل') && !body.contains('تم استلام'));
+    if (res.actualBalance != null) {
+      setCardBalance(card.id, res.actualBalance!);
+    }
 
-    if (isBalanceOnly) {
+    if (res.intent == AITransactionIntent.balanceInquiryOnly || res.transactionAmount == null || res.transactionAmount! <= 0) {
       return;
     }
 
-    // 4. استخراج تاريخ ووقت العملية من نص الرسالة إن وُجد
-    String effectiveDateStr = date.toIso8601String();
-    final timeMatch = RegExp(r'(\d{2}:\d{2})\s+(\d{2}-\d{2}-\d{2})').firstMatch(body)
-        ?? RegExp(r'(\d{2}-\d{2}-\d{2})\s+(\d{2}:\d{2})').firstMatch(body)
-        ?? RegExp(r'بتاريخ\s+(\d{2}-\d{2}-\d{4})\s+(\d{2}:\d{2})').firstMatch(body);
+    final txTime = res.matchedTimestamp ?? date.toIso8601String();
 
-    if (timeMatch != null) {
-      effectiveDateStr = '${timeMatch.group(0)}';
-    }
-
-    // 5. استخراج أطراف المعاملة وتحديد نوعها
-    TransactionType txType = TransactionType.generic;
-    String displayTitle = 'معاملة مالية';
-    String? subDetail;
-    bool isIncome = false;
-
-    // استلام أموال مع اسم صريح
-    if (body.contains('تم استلام') || body.contains('تحويل وارد') || body.contains('تحويل لحظي')) {
-      isIncome = true;
-      txType = TransactionType.transferIn;
-
-      final nameMatch = RegExp(r'المسجل بإسم\s+([A-Za-z\u0621-\u064A\s]+?)(?:\s+على رقم|\s+رصيدك|\s+بتاريخ|\.)').firstMatch(body)
-          ?? RegExp(r'من\s+([A-Za-z\u0621-\u064A\s]+?)(?:\s+برقم مرجعي|\s+على رقم|\s+لحسابك|\s+بتاريخ|\.)').firstMatch(body);
-
-      final senderNumMatch = RegExp(r'من رقم\s*(01[0125][0-9]{8})').firstMatch(body);
-
-      if (nameMatch != null && nameMatch.group(1)!.trim().isNotEmpty) {
-        displayTitle = 'استلام من ${nameMatch.group(1)!.trim()}';
-        if (senderNumMatch != null) subDetail = senderNumMatch.group(1);
-      } else if (senderNumMatch != null) {
-        displayTitle = 'استلام من ${senderNumMatch.group(1)}';
-      } else {
-        displayTitle = 'تحويل وارد';
-      }
-    }
-    // سحب كاش من محفظة أو ATM
-    else if (body.contains('تم سحب') || body.contains('سحب نقدي') || body.contains('Cash withdrawal')) {
-      isIncome = false;
-      txType = TransactionType.atm;
-      displayTitle = 'سحب نقدي كاش';
-    }
-    // دفع خدمات وفواتير ومشتريات
-    else if (body.contains('تم دفع') || body.contains('دفع مبلغ') || body.contains('purchase') || body.contains('شراء')) {
-      isIncome = false;
-      txType = TransactionType.purchase;
-
-      final serviceMatch = RegExp(r'لـ?([A-Za-z0-9_\-\u0621-\u064A\s]+?)(?:\.|\s+رصيد|\s+رقم|\s+بمبلغ)').firstMatch(body);
-      if (serviceMatch != null && serviceMatch.group(1)!.trim().isNotEmpty) {
-        displayTitle = 'دفع لـ ${serviceMatch.group(1)!.trim()}';
-      } else {
-        displayTitle = 'سداد مدفوعات';
-      }
-    }
-    // تحويل صادر
-    else if (body.contains('تم تحويل') || body.contains('transferred to') || body.contains('تحويل إلى')) {
-      isIncome = false;
-      txType = TransactionType.transferOut;
-
-      final toNumMatch = RegExp(r'(?:لرقم|to|إلى)\s*(01[0125][0-9]{8})').firstMatch(body);
-      if (toNumMatch != null) {
-        displayTitle = 'تحويل إلى ${toNumMatch.group(1)}';
-      } else {
-        displayTitle = 'تحويل صادر';
-      }
-    }
-
-    // 6. استخراج مبلغ المعاملة
-    final amtMatch = RegExp(r'(?:مبلغ|سحب|تحويل|transferred)\s*[:=]?\s*(\d+(?:[\.,]\d{1,2})?)\s*(?:جنية|جنيه|ج\.م|L\.E|LE|EGP)?', caseSensitive: false).firstMatch(body)
-        ?? RegExp(r'(\d+(?:[\.,]\d{1,2})?)\s*(?:L\.E|LE|EGP|جنية|جنيه|ج\.م)').firstMatch(body);
-
-    if (amtMatch != null) {
-      final rawAmt = amtMatch.group(1)!.replaceAll(',', '');
-      final txAmount = double.tryParse(rawAmt);
-
-      if (txAmount != null && txAmount > 0) {
-        final isDup = card.transactions.any((t) => t.amount == txAmount && t.name == displayTitle);
-        if (!isDup) {
-          addTransaction(
-            card.id,
-            TransactionItem(
-              name: displayTitle,
-              subtitle: subDetail,
-              date: effectiveDateStr,
-              amount: txAmount,
-              isIncome: isIncome,
-              category: _getCategoryForType(txType),
-              txType: txType,
-            ),
-          );
-        }
-      }
+    final isDup = card.transactions.any((t) => t.amount == res.transactionAmount && t.name == res.primaryTitle);
+    if (!isDup) {
+      addTransaction(
+        card.id,
+        TransactionItem(
+          name: res.primaryTitle,
+          subtitle: res.partyDetail,
+          date: txTime,
+          amount: res.transactionAmount!,
+          isIncome: res.isIncome,
+          category: _categoryFromIntent(res.intent),
+          intent: res.intent,
+        ),
+      );
     }
   }
 
-  String _getCategoryForType(TransactionType t) {
-    switch (t) {
-      case TransactionType.atm: return 'سحب كاش';
-      case TransactionType.purchase: return 'فواتير ومشتريات';
-      case TransactionType.transferOut:
-      case TransactionType.transferIn: return 'تحويلات';
-      case TransactionType.deposit: return 'إيداع';
-      case TransactionType.generic: return 'عام';
+  String _categoryFromIntent(AITransactionIntent intent) {
+    switch (intent) {
+      case AITransactionIntent.atmWithdrawal: return 'سحب كاش';
+      case AITransactionIntent.merchantPurchase: return 'مشتريات وفواتير';
+      case AITransactionIntent.p2pTransferOut:
+      case AITransactionIntent.p2pTransferIn: return 'تحويلات';
+      case AITransactionIntent.bankDeposit: return 'إيداع وراتب';
+      default: return 'عام';
     }
   }
 
@@ -430,7 +332,7 @@ class AppData extends ChangeNotifier {
 
         final matchedBank = EgyptInstitutions.matchSender(sender);
         if (matchedBank != null) {
-          _processMessageOrNotification(matchedBank, body, sender, msg.date ?? DateTime.now());
+          _processWithAI(matchedBank, body, msg.date ?? DateTime.now());
           detected++;
         }
       }
@@ -484,20 +386,20 @@ class TransactionItem {
   final String date, category;
   final double amount;
   final bool isIncome;
-  final TransactionType txType;
+  final AITransactionIntent intent;
 
   TransactionItem({
     required this.name, this.subtitle, required this.date, required this.amount, required this.isIncome, required this.category,
-    this.txType = TransactionType.generic,
+    this.intent = AITransactionIntent.unknown,
   });
 
   Map<String, dynamic> toJson() => {
-    'name': name, 'subtitle': subtitle, 'date': date, 'amount': amount, 'isIncome': isIncome, 'category': category, 'txType': txType.index,
+    'name': name, 'subtitle': subtitle, 'date': date, 'amount': amount, 'isIncome': isIncome, 'category': category, 'intent': intent.index,
   };
 
   factory TransactionItem.fromJson(Map<String, dynamic> json) => TransactionItem(
     name: json['name'], subtitle: json['subtitle'], date: json['date'], amount: (json['amount'] as num).toDouble(), isIncome: json['isIncome'],
-    category: json['category'] ?? 'عام', txType: TransactionType.values[(json['txType'] ?? TransactionType.generic.index)],
+    category: json['category'] ?? 'عام', intent: AITransactionIntent.values[(json['intent'] ?? AITransactionIntent.unknown.index)],
   );
 }
 
@@ -669,34 +571,33 @@ class _AppleWalletTabState extends State<AppleWalletTab> {
     );
   }
 
-  Widget _getTransactionIcon(TransactionType t, bool isIncome) {
+  Widget _getTransactionIcon(AITransactionIntent intent, bool isIncome) {
     IconData icon;
     Color bg;
     Color fg;
 
-    switch (t) {
-      case TransactionType.atm:
+    switch (intent) {
+      case AITransactionIntent.atmWithdrawal:
         icon = Icons.local_atm_rounded;
         bg = Colors.amber.withValues(alpha: 0.15);
         fg = Colors.amber.shade700;
         break;
-      case TransactionType.purchase:
+      case AITransactionIntent.merchantPurchase:
         icon = Icons.shopping_bag_rounded;
         bg = Colors.blue.withValues(alpha: 0.15);
         fg = Colors.blueAccent;
         break;
-      case TransactionType.transferOut:
-      case TransactionType.transferIn:
+      case AITransactionIntent.p2pTransferOut:
+      case AITransactionIntent.p2pTransferIn:
         icon = isIncome ? Icons.call_received_rounded : Icons.call_made_rounded;
         bg = (isIncome ? Colors.green : Colors.purple).withValues(alpha: 0.15);
         fg = isIncome ? Colors.green : Colors.purpleAccent;
         break;
-      case TransactionType.deposit:
+      case AITransactionIntent.bankDeposit:
         icon = Icons.savings_rounded;
         bg = Colors.green.withValues(alpha: 0.15);
         fg = Colors.green;
         break;
-      case TransactionType.generic:
       default:
         icon = isIncome ? Icons.south_west_rounded : Icons.north_east_rounded;
         bg = (isIncome ? Colors.green : Colors.red).withValues(alpha: 0.15);
@@ -728,12 +629,12 @@ class _AppleWalletTabState extends State<AppleWalletTab> {
                   children: [
                     IconButton(
                       icon: const Icon(Icons.sync_rounded, color: Colors.blueAccent, size: 26),
-                      tooltip: 'فحص الرسائل بدقة',
+                      tooltip: 'فحص الرسائل بمحرك الذكاء الاصطناعي',
                       onPressed: () async {
-                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('جاري فحص رسائل البنوك وتحديث الأرصدة والأسماء...')));
+                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('المحرك المحلي يحلل الرسائل سياقياً...')));
                         await widget.appData.autoDetectBanksAndSms();
                         if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تمت مزامنة الرسائل بدقة')));
+                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تم التحليل وتحديث الأرصدة')));
                         }
                       },
                     ),
@@ -755,7 +656,7 @@ class _AppleWalletTabState extends State<AppleWalletTab> {
                       children: [
                         Icon(Icons.account_balance_wallet_outlined, size: 70, color: Colors.grey.withValues(alpha: 0.4)),
                         const SizedBox(height: 12),
-                        const Text('اضغط على علامة التزامن لفحص الرسائل وتحديث الرصيد', style: TextStyle(fontSize: 14, color: Colors.grey)),
+                        const Text('اضغط على علامة التزامن لتشغيل الذكاء الاصطناعي المحلي', style: TextStyle(fontSize: 14, color: Colors.grey)),
                         const SizedBox(height: 12),
                         ElevatedButton.icon(
                           style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF10B981), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20))),
@@ -982,7 +883,7 @@ class _AppleWalletTabState extends State<AppleWalletTab> {
               children: [
                 Row(
                   children: [
-                    _getTransactionIcon(tx.txType, tx.isIncome),
+                    _getTransactionIcon(tx.intent, tx.isIncome),
                     const SizedBox(width: 12),
                     Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1154,7 +1055,7 @@ class SettingsTab extends StatelessWidget {
           ListTile(
             leading: const Icon(Icons.notifications_active_rounded, color: Colors.blueAccent),
             title: const Text('تفعيل الاستماع للإشعارات لحظياً'),
-            subtitle: const Text('لقراءة إشعارات التحويلات والسحب فور وصولها'),
+            subtitle: const Text('تحليل الإشعارات محلياً فور وصولها بالذكاء الاصطناعي'),
             trailing: const Icon(Icons.arrow_forward_ios, size: 14),
             onTap: () async {
               final status = await NotificationListenerService.isPermissionGranted();
@@ -1173,7 +1074,7 @@ class SettingsTab extends StatelessWidget {
             leading: const Icon(Icons.delete_sweep_rounded, color: Colors.red),
             onTap: () {
               appData.clearAll();
-              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تم مسح البيانات القديمة لتصحيح السجلات')));
+              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تم مسح البيانات لتطبيق التحليل الذكي')));
             },
           ),
         ],

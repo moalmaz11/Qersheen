@@ -10,6 +10,7 @@ dependencies:
   fl_chart: ^1.2.0
   flutter:
   assets:
+    - assets/models/
     - assets/logos/
     sdk: flutter
   flutter_sms_inbox: ^1.0.5
@@ -26,6 +27,7 @@ dev_dependencies:
 
 flutter:
   assets:
+    - assets/models/
     - assets/logos/
   uses-material-design: true
 
