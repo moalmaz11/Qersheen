@@ -2,6 +2,9 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:fl_chart/fl_chart.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:flutter_sms_inbox/flutter_sms_inbox.dart';
+import 'package:notification_listener_service/notification_listener_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -9,17 +12,450 @@ void main() async {
   runApp(QersheenApp(prefs: prefs));
 }
 
-// ================= State Management =================
+// ================= بيانات البنوك والمحافظ =================
+class BankEntity {
+  final String id, name, type, acronym;
+  final List<String> matchKeywords;
+  final List<Color> gradientColors;
+  final Color textColor, chipColor, logoBg, logoTextColor;
+  final String? cardTypeBadge;
+  final IconData logoIcon;
+
+  const BankEntity({
+    required this.id,
+    required this.name,
+    required this.type,
+    required this.acronym,
+    required this.matchKeywords,
+    required this.gradientColors,
+    required this.textColor,
+    required this.chipColor,
+    required this.logoBg,
+    required this.logoTextColor,
+    required this.logoIcon,
+    this.cardTypeBadge,
+  });
+}
+
+class EgyptInstitutions {
+  static const List<BankEntity> all = [
+    BankEntity(
+      id: 'nbe',
+      name: 'البنك الأهلي المصري',
+      type: 'National Bank of Egypt',
+      acronym: 'NBE',
+      cardTypeBadge: 'prepaid',
+      matchKeywords: ['nbe', 'ahli', 'الأهلي', 'البنك الأهلي'],
+      gradientColors: [Color(0xFF1E3A2B), Color(0xFF144533), Color(0xFFC86D2B)],
+      textColor: Colors.white,
+      chipColor: Color(0xFFD4AF37),
+      logoBg: Color(0xFF0F5132),
+      logoTextColor: Color(0xFFFBBF24),
+      logoIcon: Icons.account_balance,
+    ),
+    BankEntity(
+      id: 'misr',
+      name: 'بنك مصر',
+      type: 'BANQUE MISR',
+      acronym: 'BM',
+      cardTypeBadge: 'classic debit',
+      matchKeywords: ['banquemisr', 'bm', 'بنك مصر', 'bm online'],
+      gradientColors: [Color(0xFF8C6527), Color(0xFFB38738), Color(0xFF5A3A0E)],
+      textColor: Colors.white,
+      chipColor: Color(0xFFE5C158),
+      logoBg: Color(0xFF991B1B),
+      logoTextColor: Colors.white,
+      logoIcon: Icons.shield_rounded,
+    ),
+    BankEntity(
+      id: 'cib',
+      name: 'البنك التجاري الدولي',
+      type: 'Commercial International Bank',
+      acronym: 'CIB',
+      cardTypeBadge: 'titanium debit',
+      matchKeywords: ['cib', 'cibeg', 'التجاري الدولي'],
+      gradientColors: [Color(0xFF0C1D36), Color(0xFF1B3D6B), Color(0xFF0A182B)],
+      textColor: Colors.white,
+      chipColor: Color(0xFFD4AF37),
+      logoBg: Color(0xFF0284C7),
+      logoTextColor: Colors.white,
+      logoIcon: Icons.layers_rounded,
+    ),
+    BankEntity(
+      id: 'caire',
+      name: 'بنك القاهرة',
+      type: 'Banque Du Caire',
+      acronym: 'BDC',
+      cardTypeBadge: 'gold debit',
+      matchKeywords: ['bdc', 'banqueducaire', 'القاهرة', 'بنك القاهرة'],
+      gradientColors: [Color(0xFF431407), Color(0xFF7C2D12), Color(0xFF2A0802)],
+      textColor: Colors.white,
+      chipColor: Color(0xFFD4AF37),
+      logoBg: Color(0xFFEA580C),
+      logoTextColor: Colors.white,
+      logoIcon: Icons.apartment_rounded,
+    ),
+    BankEntity(
+      id: 'alex',
+      name: 'بنك الإسكندرية',
+      type: 'AlexBank - Intesa Sanpaolo',
+      acronym: 'ALEX',
+      cardTypeBadge: 'classic',
+      matchKeywords: ['alexbank', 'alex', 'الإسكندرية', 'بنك الإسكندرية'],
+      gradientColors: [Color(0xFF022C22), Color(0xFF065F46), Color(0xFF021B14)],
+      textColor: Colors.white,
+      chipColor: Color(0xFFD4AF37),
+      logoBg: Color(0xFF10B981),
+      logoTextColor: Colors.white,
+      logoIcon: Icons.waves_rounded,
+    ),
+    BankEntity(
+      id: 'qnb',
+      name: 'بنك QNB الأهلي',
+      type: 'Qatar National Bank Alahli',
+      acronym: 'QNB',
+      cardTypeBadge: 'platinum debit',
+      matchKeywords: ['qnb', 'qnbaa', 'قطر الوطني'],
+      gradientColors: [Color(0xFF2D0A1E), Color(0xFF581338), Color(0xFF1F0414)],
+      textColor: Colors.white,
+      chipColor: Color(0xFFE5C158),
+      logoBg: Color(0xFF831843),
+      logoTextColor: Colors.white,
+      logoIcon: Icons.diamond_rounded,
+    ),
+    BankEntity(
+      id: 'adib',
+      name: 'مصرف أبوظبي الإسلامي',
+      type: 'Abu Dhabi Islamic Bank',
+      acronym: 'ADIB',
+      cardTypeBadge: 'islamic debit',
+      matchKeywords: ['adib', 'adibeg', 'أبوظبي الإسلامي'],
+      gradientColors: [Color(0xFF0C2444), Color(0xFF1D4ED8), Color(0xFF091A33)],
+      textColor: Colors.white,
+      chipColor: Color(0xFFD4AF37),
+      logoBg: Color(0xFF2563EB),
+      logoTextColor: Colors.white,
+      logoIcon: Icons.token_rounded,
+    ),
+    BankEntity(
+      id: 'aaib',
+      name: 'البنك العربي الإفريقي الدولي',
+      type: 'Arab African International Bank',
+      acronym: 'AAIB',
+      cardTypeBadge: 'signature',
+      matchKeywords: ['aaib', 'العربي الإفريقي'],
+      gradientColors: [Color(0xFF0B192C), Color(0xFF1E3E62), Color(0xFF060D17)],
+      textColor: Colors.white,
+      chipColor: Color(0xFFD4AF37),
+      logoBg: Color(0xFF0891B2),
+      logoTextColor: Colors.white,
+      logoIcon: Icons.public_rounded,
+    ),
+    BankEntity(
+      id: 'faisal',
+      name: 'بنك فيصل الإسلامي المصري',
+      type: 'Faisal Islamic Bank of Egypt',
+      acronym: 'FAISAL',
+      cardTypeBadge: 'islamic gold',
+      matchKeywords: ['faisal', 'fib', 'فيصل الإسلامي'],
+      gradientColors: [Color(0xFF063323), Color(0xFF047857), Color(0xFF031F15)],
+      textColor: Colors.white,
+      chipColor: Color(0xFFFBBF24),
+      logoBg: Color(0xFF059669),
+      logoTextColor: Color(0xFFFEF3C7),
+      logoIcon: Icons.verified_rounded,
+    ),
+    BankEntity(
+      id: 'hdb',
+      name: 'بنك التعمير والإسكان',
+      type: 'Housing & Development Bank',
+      acronym: 'HDB',
+      cardTypeBadge: 'debit',
+      matchKeywords: ['hdb', 'hdbank', 'التعمير والإسكان'],
+      gradientColors: [Color(0xFF1E1B4B), Color(0xFF3730A3), Color(0xFF100E2B)],
+      textColor: Colors.white,
+      chipColor: Color(0xFFD4AF37),
+      logoBg: Color(0xFF4F46E5),
+      logoTextColor: Colors.white,
+      logoIcon: Icons.home_work_rounded,
+    ),
+    BankEntity(
+      id: 'hsbc',
+      name: 'بنك HSBC مصر',
+      type: 'HSBC Bank Egypt',
+      acronym: 'HSBC',
+      cardTypeBadge: 'premier debit',
+      matchKeywords: ['hsbc', 'hsbceg'],
+      gradientColors: [Color(0xFF18181B), Color(0xFF27272A), Color(0xFF09090B)],
+      textColor: Colors.white,
+      chipColor: Color(0xFFD4AF37),
+      logoBg: Color(0xFFDC2626),
+      logoTextColor: Colors.white,
+      logoIcon: Icons.hexagon_outlined,
+    ),
+    BankEntity(
+      id: 'ca',
+      name: 'بنك كريدي أجريكول مصر',
+      type: 'Crédit Agricole Egypt',
+      acronym: 'CAE',
+      cardTypeBadge: 'classic',
+      matchKeywords: ['cae', 'creditagricole', 'كريدي أجريكول'],
+      gradientColors: [Color(0xFF064E3B), Color(0xFF047857), Color(0xFF022C22)],
+      textColor: Colors.white,
+      chipColor: Color(0xFFD4AF37),
+      logoBg: Color(0xFF059669),
+      logoTextColor: Colors.white,
+      logoIcon: Icons.eco_rounded,
+    ),
+    BankEntity(
+      id: 'fab',
+      name: 'بنك أبوظبي الأول مصر',
+      type: 'First Abu Dhabi Bank',
+      acronym: 'FABMISR',
+      cardTypeBadge: 'signature',
+      matchKeywords: ['fabmisr', 'fab', 'أبوظبي الأول'],
+      gradientColors: [Color(0xFF0F172A), Color(0xFF1E293B), Color(0xFF020617)],
+      textColor: Colors.white,
+      chipColor: Color(0xFFD4AF37),
+      logoBg: Color(0xFFE11D48),
+      logoTextColor: Colors.white,
+      logoIcon: Icons.stars_rounded,
+    ),
+    BankEntity(
+      id: 'adcb',
+      name: 'بنك أبوظبي التجاري مصر',
+      type: 'Abu Dhabi Commercial Bank',
+      acronym: 'ADCB',
+      cardTypeBadge: 'titanium',
+      matchKeywords: ['adcb', 'أبوظبي التجاري'],
+      gradientColors: [Color(0xFF450A0A), Color(0xFF7F1D1D), Color(0xFF220303)],
+      textColor: Colors.white,
+      chipColor: Color(0xFFD4AF37),
+      logoBg: Color(0xFFDC2626),
+      logoTextColor: Colors.white,
+      logoIcon: Icons.change_history_rounded,
+    ),
+    BankEntity(
+      id: 'baraka',
+      name: 'بنك البركة مصر',
+      type: 'Al Baraka Bank Egypt',
+      acronym: 'BARAKA',
+      cardTypeBadge: 'islamic card',
+      matchKeywords: ['albaraka', 'البركة'],
+      gradientColors: [Color(0xFF0C2E20), Color(0xFF14532D), Color(0xFF051710)],
+      textColor: Colors.white,
+      chipColor: Color(0xFFFBBF24),
+      logoBg: Color(0xFF15803D),
+      logoTextColor: Color(0xFFFEF3C7),
+      logoIcon: Icons.spa_rounded,
+    ),
+    BankEntity(
+      id: 'scb',
+      name: 'بنك قناة السويس',
+      type: 'Suez Canal Bank',
+      acronym: 'SCB',
+      cardTypeBadge: 'classic debit',
+      matchKeywords: ['scb', 'قناة السويس'],
+      gradientColors: [Color(0xFF032541), Color(0xFF0B4F8A), Color(0xFF011424)],
+      textColor: Colors.white,
+      chipColor: Color(0xFFD4AF37),
+      logoBg: Color(0xFF0284C7),
+      logoTextColor: Colors.white,
+      logoIcon: Icons.directions_boat_rounded,
+    ),
+    BankEntity(
+      id: 'enbd',
+      name: 'بنك الإمارات دبي الوطني',
+      type: 'Emirates NBD Egypt',
+      acronym: 'ENBD',
+      cardTypeBadge: 'priority banking',
+      matchKeywords: ['enbd', 'الإمارات دبي الوطني'],
+      gradientColors: [Color(0xFF172554), Color(0xFF1E40AF), Color(0xFF09122C)],
+      textColor: Colors.white,
+      chipColor: Color(0xFFD4AF37),
+      logoBg: Color(0xFF2563EB),
+      logoTextColor: Colors.white,
+      logoIcon: Icons.wb_sunny_rounded,
+    ),
+    BankEntity(
+      id: 'arab',
+      name: 'البنك العربي مصر',
+      type: 'Arab Bank Egypt',
+      acronym: 'ARAB',
+      cardTypeBadge: 'arab debit',
+      matchKeywords: ['arabbank', 'البنك العربي'],
+      gradientColors: [Color(0xFF1E1B4B), Color(0xFF312E81), Color(0xFF0E0C2B)],
+      textColor: Colors.white,
+      chipColor: Color(0xFFD4AF37),
+      logoBg: Color(0xFF4338CA),
+      logoTextColor: Colors.white,
+      logoIcon: Icons.language_rounded,
+    ),
+    BankEntity(
+      id: 'nbk',
+      name: 'بنك الكويت الوطني مصر',
+      type: 'National Bank of Kuwait',
+      acronym: 'NBK',
+      cardTypeBadge: 'platinum',
+      matchKeywords: ['nbk', 'الكويت الوطني'],
+      gradientColors: [Color(0xFF172554), Color(0xFF1E3A8A), Color(0xFF0B1433)],
+      textColor: Colors.white,
+      chipColor: Color(0xFFD4AF37),
+      logoBg: Color(0xFF1D4ED8),
+      logoTextColor: Colors.white,
+      logoIcon: Icons.flag_rounded,
+    ),
+    BankEntity(
+      id: 'abk',
+      name: 'البنك الأهلي الكويتي مصر',
+      type: 'Al Ahli Bank of Kuwait',
+      acronym: 'ABK',
+      cardTypeBadge: 'classic',
+      matchKeywords: ['abk', 'الأهلي الكويتي'],
+      gradientColors: [Color(0xFF111827), Color(0xFF1F2937), Color(0xFF030712)],
+      textColor: Colors.white,
+      chipColor: Color(0xFFD4AF37),
+      logoBg: Color(0xFFEF4444),
+      logoTextColor: Colors.white,
+      logoIcon: Icons.bookmark_rounded,
+    ),
+    BankEntity(
+      id: 'attijari',
+      name: 'التجاري وفا بنك مصر',
+      type: 'Attijariwafa Bank Egypt',
+      acronym: 'WAFA',
+      cardTypeBadge: 'gold debit',
+      matchKeywords: ['attijariwafa', 'وفا بنك'],
+      gradientColors: [Color(0xFF451A03), Color(0xFF78350F), Color(0xFF240E02)],
+      textColor: Colors.white,
+      chipColor: Color(0xFFF59E0B),
+      logoBg: Color(0xFFD97706),
+      logoTextColor: Colors.white,
+      logoIcon: Icons.brightness_high_rounded,
+    ),
+    BankEntity(
+      id: 'saib',
+      name: 'بنك الشركة المصرفية العربية saib',
+      type: 'saib Bank Egypt',
+      acronym: 'SAIB',
+      cardTypeBadge: 'debit card',
+      matchKeywords: ['saib', 'بنك saib'],
+      gradientColors: [Color(0xFF1E293B), Color(0xFF334155), Color(0xFF0F172A)],
+      textColor: Colors.white,
+      chipColor: Color(0xFFD4AF37),
+      logoBg: Color(0xFFD97706),
+      logoTextColor: Colors.white,
+      logoIcon: Icons.shield_outlined,
+    ),
+    BankEntity(
+      id: 'ub',
+      name: 'المصرف المتحد',
+      type: 'The United Bank of Egypt',
+      acronym: 'UB',
+      cardTypeBadge: 'classic',
+      matchKeywords: ['theunitedbank', 'ub', 'المصرف المتحد'],
+      gradientColors: [Color(0xFF042F2C), Color(0xFF0F766E), Color(0xFF021715)],
+      textColor: Colors.white,
+      chipColor: Color(0xFFD4AF37),
+      logoBg: Color(0xFF0D9488),
+      logoTextColor: Colors.white,
+      logoIcon: Icons.handshake_rounded,
+    ),
+    BankEntity(
+      id: 'voda',
+      name: 'فودافون كاش',
+      type: 'Vodafone Cash Wallet',
+      acronym: 'VF-CASH',
+      cardTypeBadge: 'smart wallet',
+      matchKeywords: ['vf-cash', 'vodafone', 'فودافون كاش', 'vodafone cash', 'vfcash'],
+      gradientColors: [Color(0xFF4A0404), Color(0xFF990000), Color(0xFF2A0000)],
+      textColor: Colors.white,
+      chipColor: Color(0xFFEF4444),
+      logoBg: Color(0xFFE11D48),
+      logoTextColor: Colors.white,
+      logoIcon: Icons.phone_android_rounded,
+    ),
+    BankEntity(
+      id: 'orange',
+      name: 'أورنج كاش',
+      type: 'Orange Cash Wallet',
+      acronym: 'ORANGE',
+      cardTypeBadge: 'e-wallet',
+      matchKeywords: ['orangecash', 'orange', 'أورنج كاش'],
+      gradientColors: [Color(0xFF431407), Color(0xFFC2410C), Color(0xFF240A03)],
+      textColor: Colors.white,
+      chipColor: Color(0xFFF97316),
+      logoBg: Color(0xFFEA580C),
+      logoTextColor: Colors.white,
+      logoIcon: Icons.cell_tower_rounded,
+    ),
+    BankEntity(
+      id: 'etisalat',
+      name: 'إي آند كاش (اتصالات)',
+      type: 'e& Cash Wallet',
+      acronym: 'e& CASH',
+      cardTypeBadge: 'e-wallet',
+      matchKeywords: ['etisalatcash', 'e&cash', 'اتصالات كاش', 'إي آند كاش'],
+      gradientColors: [Color(0xFF1E3A0F), Color(0xFF3F6212), Color(0xFF102008)],
+      textColor: Colors.white,
+      chipColor: Color(0xFF84CC16),
+      logoBg: Color(0xFF65A30D),
+      logoTextColor: Colors.white,
+      logoIcon: Icons.signal_cellular_alt_rounded,
+    ),
+    BankEntity(
+      id: 'we',
+      name: 'وي باي (WE Pay)',
+      type: 'WE Pay Telecom Egypt',
+      acronym: 'WE PAY',
+      cardTypeBadge: 'smart wallet',
+      matchKeywords: ['wepay', 'telecomegypt', 'وي باي'],
+      gradientColors: [Color(0xFF2E1065), Color(0xFF581C87), Color(0xFF170836)],
+      textColor: Colors.white,
+      chipColor: Color(0xFFA855F7),
+      logoBg: Color(0xFF7E22CE),
+      logoTextColor: Colors.white,
+      logoIcon: Icons.bolt_rounded,
+    ),
+    BankEntity(
+      id: 'fawry',
+      name: 'محفظة فوري باي',
+      type: 'Fawry Pay Wallet',
+      acronym: 'FAWRY',
+      cardTypeBadge: 'digital wallet',
+      matchKeywords: ['fawry', 'myfawry', 'فوري'],
+      gradientColors: [Color(0xFF422006), Color(0xFF854D0E), Color(0xFF201003)],
+      textColor: Colors.white,
+      chipColor: Color(0xFFFACC15),
+      logoBg: Color(0xFFCA8A04),
+      logoTextColor: Colors.black,
+      logoIcon: Icons.point_of_sale_rounded,
+    ),
+  ];
+
+  static BankEntity? matchText(String text) {
+    final lower = text.toLowerCase();
+    for (var bank in all) {
+      for (var kw in bank.matchKeywords) {
+        if (lower.contains(kw.toLowerCase())) return bank;
+      }
+    }
+    return null;
+  }
+}
+
+// ================= State Management & Notification Listening =================
 class AppData extends ChangeNotifier {
   final SharedPreferences prefs;
   bool isDarkMode;
   double dailyBudgetLimit;
   List<UserCardModel> userCards = [];
 
-  AppData(this.prefs) 
+  AppData(this.prefs)
       : isDarkMode = prefs.getBool('isDark') ?? true,
         dailyBudgetLimit = prefs.getDouble('dailyLimit') ?? 600.0 {
     _loadCards();
+    _startNotificationListener();
   }
 
   void toggleTheme() {
@@ -35,7 +471,7 @@ class AppData extends ChangeNotifier {
   }
 
   void _loadCards() {
-    final String? cardsJson = prefs.getString('cardsData');
+    final String? cardsJson = prefs.getString('cardsData_v4');
     if (cardsJson != null && cardsJson.isNotEmpty) {
       final List<dynamic> decoded = jsonDecode(cardsJson);
       userCards = decoded.map((e) => UserCardModel.fromJson(e)).toList();
@@ -46,15 +482,17 @@ class AppData extends ChangeNotifier {
 
   void _saveCards() {
     final String encoded = jsonEncode(userCards.map((c) => c.toJson()).toList());
-    prefs.setString('cardsData', encoded);
+    prefs.setString('cardsData_v4', encoded);
   }
 
   void addNewCard(BankEntity entity) {
+    if (userCards.any((c) => c.bankId == entity.id)) return;
     final newCard = UserCardModel(
       id: entity.id + DateTime.now().millisecondsSinceEpoch.toString(),
-      name: entity.name, acronym: entity.acronym, balance: 0.0,
-      primaryColor: entity.primaryColor.value, secondaryColor: entity.secondaryColor.value, badgeBg: entity.badgeBg.value,
-      transactions: [TransactionItem(name: 'تفعيل الحساب', date: DateTime.now().toIso8601String(), amount: 0.0, isIncome: true, category: 'عام')],
+      bankId: entity.id,
+      cardNumber: '•••• ${(1000 + (DateTime.now().microsecond % 9000))}',
+      balance: 0.0,
+      transactions: [],
     );
     userCards.insert(0, newCard);
     _saveCards();
@@ -62,10 +500,10 @@ class AppData extends ChangeNotifier {
   }
 
   void addTransaction(String cardId, String name, double amount, bool isIncome, String category) {
-    final cardIndex = userCards.indexWhere((c) => c.id == cardId);
-    if (cardIndex != -1) {
-      userCards[cardIndex].balance += isIncome ? amount : -amount;
-      userCards[cardIndex].transactions.insert(0, TransactionItem(
+    final idx = userCards.indexWhere((c) => c.id == cardId);
+    if (idx != -1) {
+      userCards[idx].balance += isIncome ? amount : -amount;
+      userCards[idx].transactions.insert(0, TransactionItem(
         name: name, date: DateTime.now().toIso8601String(), amount: amount, isIncome: isIncome, category: category
       ));
       _saveCards();
@@ -73,31 +511,110 @@ class AppData extends ChangeNotifier {
     }
   }
 
-  void deleteTransaction(String cardId, TransactionItem transaction) {
-    final cardIndex = userCards.indexWhere((c) => c.id == cardId);
-    if (cardIndex != -1) {
-      userCards[cardIndex].balance += transaction.isIncome ? -transaction.amount : transaction.amount;
-      userCards[cardIndex].transactions.remove(transaction);
+  void deleteTransaction(String cardId, TransactionItem item) {
+    final idx = userCards.indexWhere((c) => c.id == cardId);
+    if (idx != -1) {
+      userCards[idx].balance += item.isIncome ? -item.amount : item.amount;
+      userCards[idx].transactions.remove(item);
       _saveCards();
       notifyListeners();
     }
   }
 
-  void clearAllData() {
+  void clearAll() {
     userCards.clear();
     _saveCards();
     notifyListeners();
   }
 
-  // حساب مصاريف اليوم لصفحة الميزانية
+  // ================= خدمة الاستماع للإشعارات لحظياً =================
+  void _startNotificationListener() {
+    try {
+      NotificationListenerService.notificationsStream.listen((event) {
+        final title = event.title ?? '';
+        final content = event.content ?? '';
+        final fullText = '$title $content';
+
+        // محاولة مطابقة نص الإشعار مع أي بنك أو محفظة
+        final matchedBank = EgyptInstitutions.matchText(fullText);
+        if (matchedBank != null) {
+          // إضافة الكارت لو لم يكن موجوداً
+          if (!userCards.any((c) => c.bankId == matchedBank.id)) {
+            addNewCard(matchedBank);
+          }
+
+          // استخراج المبلغ المالي
+          final amountReg = RegExp(r'(\d+(?:[\.,]\d{1,2})?)\s*(?:EGP|ج\.م|جنيه|جم)');
+          final match = amountReg.firstMatch(fullText);
+          if (match != null) {
+            final raw = match.group(1)!.replaceAll(',', '');
+            final val = double.tryParse(raw);
+
+            if (val != null && val > 0) {
+              final isInc = fullText.contains('إيداع') || fullText.contains('وارد') || fullText.contains('استلام') || fullText.contains('credited') || fullText.contains('received');
+              final target = userCards.firstWhere((c) => c.bankId == matchedBank.id);
+
+              // منع التكرار
+              if (!target.transactions.any((t) => t.amount == val && t.name.contains('إشعار'))) {
+                addTransaction(
+                  target.id,
+                  isInc ? 'إشعار تحويل وارد' : 'إشعار سداد/خصم',
+                  val,
+                  isInc,
+                  isInc ? 'دخل' : 'مشتريات/تحويل',
+                );
+              }
+            }
+          }
+        }
+      });
+    } catch (_) {}
+  }
+
+  Future<int> autoDetectBanksAndSms() async {
+    int detectedCount = 0;
+    try {
+      var status = await Permission.sms.request();
+      if (!status.isGranted) return -1;
+      SmsQuery query = SmsQuery();
+      List<SmsMessage> messages = await query.querySms(kinds: [SmsQueryKind.inbox]);
+      for (var msg in messages) {
+        final address = msg.address ?? '';
+        final body = msg.body ?? '';
+        final full = '$address $body';
+        final matchedBank = EgyptInstitutions.matchText(full);
+        if (matchedBank != null) {
+          if (!userCards.any((c) => c.bankId == matchedBank.id)) {
+            addNewCard(matchedBank);
+            detectedCount++;
+          }
+          final amountReg = RegExp(r'(\d+(?:[\.,]\d{1,2})?)\s*(?:EGP|ج\.م|جنيه)');
+          final match = amountReg.firstMatch(body);
+          if (match != null) {
+            final raw = match.group(1)!.replaceAll(',', '');
+            final val = double.tryParse(raw);
+            if (val != null && val > 0) {
+              final isInc = body.contains('إيداع') || body.contains('وارد') || body.contains('credited') || body.contains('received');
+              final target = userCards.firstWhere((c) => c.bankId == matchedBank.id);
+              if (!target.transactions.any((t) => t.amount == val && t.name.contains(address))) {
+                addTransaction(target.id, isInc ? 'تحويل وارد ($address)' : 'سداد/خصم ($address)', val, isInc, isInc ? 'دخل' : 'مشتريات');
+              }
+            }
+          }
+        }
+      }
+    } catch (_) {}
+    return detectedCount;
+  }
+
   double getTodayExpenses() {
     double total = 0;
     final today = DateTime.now();
     for (var card in userCards) {
       for (var tx in card.transactions) {
         if (!tx.isIncome) {
-          final txDate = DateTime.parse(tx.date);
-          if (txDate.year == today.year && txDate.month == today.month && txDate.day == today.day) {
+          final d = DateTime.parse(tx.date);
+          if (d.year == today.year && d.month == today.month && d.day == today.day) {
             total += tx.amount;
           }
         }
@@ -109,20 +626,21 @@ class AppData extends ChangeNotifier {
 
 // ================= Models =================
 class UserCardModel {
-  final String id, name, acronym;
+  final String id, bankId, cardNumber;
   double balance;
-  final int primaryColor, secondaryColor, badgeBg;
   final List<TransactionItem> transactions;
 
-  UserCardModel({required this.id, required this.name, required this.acronym, required this.balance, required this.primaryColor, required this.secondaryColor, required this.badgeBg, required this.transactions});
-  
+  UserCardModel({required this.id, required this.bankId, required this.cardNumber, required this.balance, required this.transactions});
+
+  BankEntity get bank => EgyptInstitutions.all.firstWhere((b) => b.id == bankId, orElse: () => EgyptInstitutions.all.first);
+
   Map<String, dynamic> toJson() => {
-    'id': id, 'name': name, 'acronym': acronym, 'balance': balance, 'primaryColor': primaryColor, 'secondaryColor': secondaryColor, 'badgeBg': badgeBg,
+    'id': id, 'bankId': bankId, 'cardNumber': cardNumber, 'balance': balance,
     'transactions': transactions.map((t) => t.toJson()).toList(),
   };
 
   factory UserCardModel.fromJson(Map<String, dynamic> json) => UserCardModel(
-    id: json['id'], name: json['name'], acronym: json['acronym'], balance: json['balance'], primaryColor: json['primaryColor'], secondaryColor: json['secondaryColor'], badgeBg: json['badgeBg'],
+    id: json['id'], bankId: json['bankId'], cardNumber: json['cardNumber'] ?? '•••• 0000', balance: json['balance'],
     transactions: (json['transactions'] as List).map((t) => TransactionItem.fromJson(t)).toList(),
   );
 }
@@ -139,22 +657,7 @@ class TransactionItem {
   );
 }
 
-class BankEntity {
-  final String id, name, type, acronym;
-  final Color primaryColor, secondaryColor, badgeBg;
-  const BankEntity({required this.id, required this.name, required this.type, required this.acronym, required this.primaryColor, required this.secondaryColor, required this.badgeBg});
-}
-
-class EgyptInstitutions {
-  static const List<BankEntity> all = [
-    BankEntity(id: 'cib', name: 'البنك التجاري الدولي', type: 'بنك تجاري', acronym: 'CIB', primaryColor: Color(0xFF0B1A30), secondaryColor: Color(0xFF0369A1), badgeBg: Color(0xFF38BDF8)),
-    BankEntity(id: 'nbe', name: 'البنك الأهلي المصري', type: 'بنك قطاع عام', acronym: 'NBE', primaryColor: Color(0xFF072B19), secondaryColor: Color(0xFF0E5431), badgeBg: Color(0xFFEAB308)),
-    BankEntity(id: 'misr', name: 'بنك مصر', type: 'بنك قطاع عام', acronym: 'BM', primaryColor: Color(0xFF4A0A10), secondaryColor: Color(0xFF7F1D1D), badgeBg: Color(0xFFDC2626)),
-    BankEntity(id: 'voda', name: 'فودافون كاش', type: 'محفظة إلكترونية', acronym: 'VODA', primaryColor: Color(0xFF3D0714), secondaryColor: Color(0xFF991B1B), badgeBg: Color(0xFFEF4444)),
-  ];
-}
-
-// ================= App Setup =================
+// ================= Main App =================
 class QersheenApp extends StatelessWidget {
   final SharedPreferences prefs;
   const QersheenApp({super.key, required this.prefs});
@@ -169,8 +672,8 @@ class QersheenApp extends StatelessWidget {
           debugShowCheckedModeBanner: false,
           title: 'قرشين',
           themeMode: appData.isDarkMode ? ThemeMode.dark : ThemeMode.light,
-          theme: ThemeData(brightness: Brightness.light, scaffoldBackgroundColor: const Color(0xFFEEF3F8), fontFamily: 'sans-serif'),
-          darkTheme: ThemeData(brightness: Brightness.dark, scaffoldBackgroundColor: const Color(0xFF050811), fontFamily: 'sans-serif'),
+          theme: ThemeData(brightness: Brightness.light, scaffoldBackgroundColor: const Color(0xFFF2F4F7), fontFamily: 'sans-serif'),
+          darkTheme: ThemeData(brightness: Brightness.dark, scaffoldBackgroundColor: Colors.black, fontFamily: 'sans-serif'),
           builder: (context, child) => Directionality(textDirection: TextDirection.rtl, child: child!),
           home: MainNavigatorScreen(appData: appData),
         );
@@ -193,20 +696,25 @@ class _MainNavigatorScreenState extends State<MainNavigatorScreen> {
   @override
   Widget build(BuildContext context) {
     final isDark = widget.appData.isDarkMode;
-    final pages = [WalletTab(appData: widget.appData), AnalyticsTab(appData: widget.appData), BudgetTab(appData: widget.appData), SettingsTab(appData: widget.appData)];
+    final pages = [
+      AppleWalletTab(appData: widget.appData),
+      AnalyticsTab(appData: widget.appData),
+      BudgetTab(appData: widget.appData),
+      SettingsTab(appData: widget.appData)
+    ];
 
     return Scaffold(
       body: IndexedStack(index: _currentIndex, children: pages),
       bottomNavigationBar: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-        decoration: BoxDecoration(color: isDark ? const Color(0xFF0D121E) : Colors.white, border: Border(top: BorderSide(color: isDark ? Colors.white12 : Colors.black12))),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        decoration: BoxDecoration(color: isDark ? const Color(0xFF121212) : Colors.white, border: Border(top: BorderSide(color: isDark ? Colors.white12 : Colors.black12))),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceAround,
           children: [
-            _buildNavItem(0, Icons.account_balance_wallet_rounded, 'المحفظة', isDark),
-            _buildNavItem(1, Icons.donut_large_rounded, 'التحليلات', isDark),
+            _buildNavItem(0, Icons.wallet_rounded, 'المحفظة', isDark),
+            _buildNavItem(1, Icons.pie_chart_outline_rounded, 'التحليلات', isDark),
             _buildNavItem(2, Icons.track_changes_rounded, 'الميزانية', isDark),
-            _buildNavItem(3, Icons.settings_rounded, 'الإعدادات', isDark),
+            _buildNavItem(3, Icons.tune_rounded, 'الإعدادات', isDark),
           ],
         ),
       ),
@@ -215,7 +723,7 @@ class _MainNavigatorScreenState extends State<MainNavigatorScreen> {
 
   Widget _buildNavItem(int index, IconData icon, String label, bool isDark) {
     final isSelected = _currentIndex == index;
-    final color = isSelected ? const Color(0xFF10B981) : (isDark ? const Color(0xFF64748B) : Colors.grey);
+    final color = isSelected ? const Color(0xFF10B981) : Colors.grey;
     return InkWell(
       onTap: () => setState(() => _currentIndex = index),
       child: Column(
@@ -230,96 +738,96 @@ class _MainNavigatorScreenState extends State<MainNavigatorScreen> {
   }
 }
 
-// ================= Tab 1: Wallet =================
-class WalletTab extends StatefulWidget {
+// ================= تبويب المحفظة بتصميم Apple Wallet =================
+class AppleWalletTab extends StatefulWidget {
   final AppData appData;
-  const WalletTab({super.key, required this.appData});
+  const AppleWalletTab({super.key, required this.appData});
   @override
-  State<WalletTab> createState() => _WalletTabState();
+  State<AppleWalletTab> createState() => _AppleWalletTabState();
 }
 
-class _WalletTabState extends State<WalletTab> {
-  List<int> _stackOrder = [];
+class _AppleWalletTabState extends State<AppleWalletTab> {
+  int? _expandedIndex;
 
-  @override
-  void initState() {
-    super.initState();
-    _syncStackOrder();
-    widget.appData.addListener(_onDataChanged);
-  }
-
-  @override
-  void dispose() {
-    widget.appData.removeListener(_onDataChanged);
-    super.dispose();
-  }
-
-  void _onDataChanged() {
-    _syncStackOrder();
-    setState(() {});
-  }
-
-  void _syncStackOrder() {
-    if (_stackOrder.length != widget.appData.userCards.length) {
-      _stackOrder = List.generate(widget.appData.userCards.length, (i) => i);
-    }
-  }
-
-  void _bringCardToFront(int cardIndex) {
-    final currentPos = _stackOrder.indexOf(cardIndex);
-    if (currentPos <= 0) return;
-    setState(() {
-      _stackOrder.removeAt(currentPos);
-      _stackOrder.insert(0, cardIndex);
-    });
-  }
-
-  void _openAddCardDialog() {
+  void _openAddSheet() {
     showModalBottomSheet(
       context: context,
-      backgroundColor: widget.appData.isDarkMode ? const Color(0xFF0D1424) : Colors.white,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (ctx) => ListView.builder(
-        padding: const EdgeInsets.all(16),
-        itemCount: EgyptInstitutions.all.length,
-        itemBuilder: (context, idx) {
-          final entity = EgyptInstitutions.all[idx];
-          return ListTile(
-            title: Text(entity.name, style: const TextStyle(fontWeight: FontWeight.bold)),
-            subtitle: Text(entity.type),
-            trailing: const Icon(Icons.add_circle, color: Color(0xFF10B981)),
-            onTap: () { widget.appData.addNewCard(entity); Navigator.pop(ctx); },
-          );
-        },
+      isScrollControlled: true,
+      backgroundColor: widget.appData.isDarkMode ? const Color(0xFF1C1C1E) : Colors.white,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (ctx) => DraggableScrollableSheet(
+        initialChildSize: 0.75,
+        maxChildSize: 0.92,
+        expand: false,
+        builder: (_, scrollCtrl) => Column(
+          children: [
+            Container(margin: const EdgeInsets.all(12), width: 44, height: 5, decoration: BoxDecoration(color: Colors.grey.withValues(alpha: 0.4), borderRadius: BorderRadius.circular(3))),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text('إضافة بطاقة إلى المحفظة', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                  Text('${EgyptInstitutions.all.length} بنك ومحفظة', style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                ],
+              ),
+            ),
+            const Divider(),
+            Expanded(
+              child: ListView.builder(
+                controller: scrollCtrl,
+                itemCount: EgyptInstitutions.all.length,
+                itemBuilder: (ctx, idx) {
+                  final entity = EgyptInstitutions.all[idx];
+                  final added = widget.appData.userCards.any((c) => c.bankId == entity.id);
+                  return ListTile(
+                    leading: Container(
+                      width: 44, height: 32,
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(colors: entity.gradientColors),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Center(
+                        child: Icon(entity.logoIcon, color: entity.logoTextColor, size: 18),
+                      ),
+                    ),
+                    title: Text(entity.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                    subtitle: Text(entity.type, style: const TextStyle(fontSize: 11)),
+                    trailing: added ? const Icon(Icons.check_circle, color: Colors.green) : const Icon(Icons.add_circle_outline, color: Color(0xFF10B981)),
+                    onTap: added ? null : () { widget.appData.addNewCard(entity); Navigator.pop(ctx); },
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
 
-  void _showTransactionDialog(bool isIncome) {
-    if (widget.appData.userCards.isEmpty) return;
-    final activeCard = widget.appData.userCards[_stackOrder[0]];
-    final titleController = TextEditingController();
-    final amountController = TextEditingController();
-    String selectedCategory = isIncome ? 'راتب' : 'طعام';
-    final categories = isIncome ? ['راتب', 'أعمال', 'أخرى'] : ['طعام', 'فواتير', 'مواصلات', 'تسوق', 'أخرى'];
+  void _showTransactionDialog(UserCardModel card, bool isIncome) {
+    final titleCtrl = TextEditingController();
+    final amountCtrl = TextEditingController();
+    String category = isIncome ? 'راتب' : 'مشتريات';
+    final categories = isIncome ? ['راتب', 'تحويل', 'أخرى'] : ['مشتريات', 'طعام', 'فواتير', 'مواصلات', 'أخرى'];
 
     showDialog(
       context: context,
       builder: (ctx) => StatefulBuilder(
-        builder: (context, setStateSB) => AlertDialog(
-          backgroundColor: widget.appData.isDarkMode ? const Color(0xFF121A2B) : Colors.white,
-          title: Text(isIncome ? 'إضافة دخل' : 'تسجيل مصروف'),
+        builder: (ctx, setD) => AlertDialog(
+          backgroundColor: widget.appData.isDarkMode ? const Color(0xFF1C1C1E) : Colors.white,
+          title: Text(isIncome ? 'إيداع / استلام في ${card.bank.acronym}' : 'سداد / خصم من ${card.bank.acronym}'),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              TextField(controller: titleController, decoration: const InputDecoration(labelText: 'البيان (مثال: غداء)')),
-              TextField(controller: amountController, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'المبلغ (ج.م)')),
+              TextField(controller: titleCtrl, decoration: const InputDecoration(labelText: 'بيان المعاملة')),
+              TextField(controller: amountCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'المبلغ (ج.م)')),
               const SizedBox(height: 10),
               DropdownButton<String>(
-                value: selectedCategory,
+                value: category,
                 isExpanded: true,
                 items: categories.map((c) => DropdownMenuItem(value: c, child: Text(c))).toList(),
-                onChanged: (v) => setStateSB(() => selectedCategory = v!),
+                onChanged: (v) => setD(() => category = v!),
               )
             ],
           ),
@@ -328,210 +836,359 @@ class _WalletTabState extends State<WalletTab> {
             ElevatedButton(
               style: ElevatedButton.styleFrom(backgroundColor: isIncome ? Colors.green : Colors.red),
               onPressed: () {
-                final amount = double.tryParse(amountController.text) ?? 0.0;
-                if (amount > 0 && titleController.text.isNotEmpty) {
-                  widget.appData.addTransaction(activeCard.id, titleController.text, amount, isIncome, selectedCategory);
+                final amt = double.tryParse(amountCtrl.text) ?? 0.0;
+                if (amt > 0 && titleCtrl.text.isNotEmpty) {
+                  widget.appData.addTransaction(card.id, titleCtrl.text, amt, isIncome, category);
                   Navigator.pop(ctx);
                 }
               },
-              child: const Text('حفظ', style: TextStyle(color: Colors.white)),
-            ),
+              child: const Text('تسجيل', style: TextStyle(color: Colors.white)),
+            )
           ],
         ),
       ),
     );
-  }
-
-  String _formatDate(String isoDate) {
-    final d = DateTime.parse(isoDate);
-    return '${d.year}/${d.month}/${d.day}';
   }
 
   @override
   Widget build(BuildContext context) {
+    final cards = widget.appData.userCards;
     final isDark = widget.appData.isDarkMode;
-    final hasCards = widget.appData.userCards.isNotEmpty;
 
     return SafeArea(
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Row(
-                  children: [
-                    Container(
-                      width: 42, height: 42,
-                      decoration: BoxDecoration(borderRadius: BorderRadius.circular(12), gradient: const LinearGradient(colors: [Color(0xFF10B981), Color(0xFF06B6D4)])),
-                      child: const Icon(Icons.wallet, color: Colors.black, size: 24),
-                    ),
-                    const SizedBox(width: 12),
-                    const Text('قرشين', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900)),
-                  ],
-                ),
-                IconButton(onPressed: _openAddCardDialog, icon: const Icon(Icons.add_card, color: Color(0xFF10B981), size: 30)),
-              ],
-            ),
-            const SizedBox(height: 20),
-
-            if (!hasCards)
-              Container(
-                height: 200, alignment: Alignment.center,
-                decoration: BoxDecoration(border: Border.all(color: Colors.grey.withValues(alpha: 0.3)), borderRadius: BorderRadius.circular(20)),
-                child: const Text('اضغط على علامة + لإضافة حساب بنكي أو محفظة'),
-              )
-            else
-              SizedBox(
-                height: 200 + ((widget.appData.userCards.length - 1) * 60.0),
-                child: Stack(
-                  children: List.generate(widget.appData.userCards.length, (cardIndex) {
-                    final position = _stackOrder.indexOf(cardIndex);
-                    return _buildAnimatedCard(cardIndex, position);
-                  }),
-                ),
-              ),
-
-            const SizedBox(height: 20),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-              children: [
-                _buildQuickAction(Icons.arrow_downward, 'دخل', Colors.green, isDark, () => _showTransactionDialog(true)),
-                _buildQuickAction(Icons.arrow_upward, 'مصروف', Colors.redAccent, isDark, () => _showTransactionDialog(false)),
-                _buildQuickAction(Icons.sync, 'تحويل', Colors.blue, isDark, () {}),
-              ],
-            ),
-            const SizedBox(height: 20),
-            
-            if (hasCards) ...[
-              Text('سجل عمليات: ${widget.appData.userCards[_stackOrder[0]].name}', style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 10),
-              ListView.builder(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                itemCount: widget.appData.userCards[_stackOrder[0]].transactions.length,
-                itemBuilder: (context, index) {
-                  final item = widget.appData.userCards[_stackOrder[0]].transactions[index];
-                  return Dismissible(
-                    key: Key(item.date + item.name),
-                    direction: DismissDirection.endToStart,
-                    background: Container(
-                      alignment: Alignment.centerLeft, padding: const EdgeInsets.only(left: 20),
-                      color: Colors.red, child: const Icon(Icons.delete, color: Colors.white),
-                    ),
-                    onDismissed: (dir) => widget.appData.deleteTransaction(widget.appData.userCards[_stackOrder[0]].id, item),
-                    child: Container(
-                      margin: const EdgeInsets.only(bottom: 8),
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: isDark ? const Color(0xFF121A2B) : Colors.white,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: isDark ? Colors.white10 : Colors.black12),
-                      ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Row(
-                            children: [
-                              Container(
-                                padding: const EdgeInsets.all(8),
-                                decoration: BoxDecoration(color: (item.isIncome ? Colors.green : Colors.red).withValues(alpha: 0.1), shape: BoxShape.circle),
-                                child: Icon(item.isIncome ? Icons.south_west : Icons.north_east, color: item.isIncome ? Colors.green : Colors.red, size: 16),
-                              ),
-                              const SizedBox(width: 12),
-                              Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(item.name, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
-                                  Text('${item.category} • ${_formatDate(item.date)}', style: const TextStyle(fontSize: 10, color: Colors.grey)),
-                                ],
-                              ),
-                            ],
-                          ),
-                          Text('${item.isIncome ? '+' : '-'}${item.amount.toStringAsFixed(0)} ج.م', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: item.isIncome ? Colors.green : Colors.red)),
-                        ],
-                      ),
-                    ),
-                  );
-                },
-              )
-            ]
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildQuickAction(IconData icon, String label, Color color, bool isDark, VoidCallback onTap) {
-    return GestureDetector(
-      onTap: onTap,
       child: Column(
         children: [
-          Container(
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: isDark ? const Color(0xFF121A2B) : Colors.white,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: isDark ? Colors.white10 : Colors.black12),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text('المحفظة', style: TextStyle(fontSize: 28, fontWeight: FontWeight.w900, letterSpacing: -0.5)),
+                Row(
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.sync_rounded, color: Colors.blueAccent, size: 26),
+                      tooltip: 'فحص الرسائل والإشعارات',
+                      onPressed: () async {
+                        final count = await widget.appData.autoDetectBanksAndSms();
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(count > 0 ? 'تم التعرف على $count بنك بنجاح' : 'تم فحص الرسائل')));
+                        }
+                      },
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.add_circle, color: Color(0xFF10B981), size: 30),
+                      onPressed: _openAddSheet,
+                    ),
+                  ],
+                ),
+              ],
             ),
-            child: Icon(icon, color: color, size: 24),
           ),
-          const SizedBox(height: 6),
-          Text(label, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+
+          Expanded(
+            child: cards.isEmpty
+                ? Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.account_balance_wallet_outlined, size: 70, color: Colors.grey.withValues(alpha: 0.4)),
+                        const SizedBox(height: 12),
+                        const Text('لا توجد بطاقات مضافة حتى الآن', style: TextStyle(fontSize: 16, color: Colors.grey)),
+                        const SizedBox(height: 12),
+                        ElevatedButton.icon(
+                          style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF10B981), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20))),
+                          icon: const Icon(Icons.add, color: Colors.white),
+                          label: const Text('إضافة بطاقة جديدة', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                          onPressed: _openAddSheet,
+                        )
+                      ],
+                    ),
+                  )
+                : SingleChildScrollView(
+                    padding: const EdgeInsets.only(bottom: 30),
+                    child: Column(
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          child: _buildAppleWalletStack(cards),
+                        ),
+
+                        if (_expandedIndex != null && _expandedIndex! < cards.length) ...[
+                          const SizedBox(height: 20),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 20),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                              children: [
+                                ElevatedButton.icon(
+                                  style: ElevatedButton.styleFrom(backgroundColor: Colors.green, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))),
+                                  icon: const Icon(Icons.arrow_downward, color: Colors.white, size: 18),
+                                  label: const Text('إيداع', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                                  onPressed: () => _showTransactionDialog(cards[_expandedIndex!], true),
+                                ),
+                                ElevatedButton.icon(
+                                  style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))),
+                                  icon: const Icon(Icons.arrow_upward, color: Colors.white, size: 18),
+                                  label: const Text('مصروف', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                                  onPressed: () => _showTransactionDialog(cards[_expandedIndex!], false),
+                                ),
+                                OutlinedButton(
+                                  style: OutlinedButton.styleFrom(shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))),
+                                  onPressed: () => setState(() => _expandedIndex = null),
+                                  child: const Text('طي الكارت'),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 20),
+                          _buildCardTransactions(cards[_expandedIndex!], isDark),
+                        ]
+                      ],
+                    ),
+                  ),
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildAnimatedCard(int cardIndex, int position) {
-    final card = widget.appData.userCards[cardIndex];
-    final double topOffset = position * 60.0;
-    final double scale = 1.0 - (position * 0.04);
+  Widget _buildAppleWalletStack(List<UserCardModel> cards) {
+    const double cardHeight = 210.0;
+    const double headerPeek = 65.0;
 
-    return AnimatedPositioned(
-      duration: const Duration(milliseconds: 350), curve: Curves.easeOutCubic,
-      top: topOffset, left: 0, right: 0,
-      child: GestureDetector(
-        onTap: () => _bringCardToFront(cardIndex),
-        child: Transform.scale(
-          scale: scale, alignment: Alignment.topCenter,
-          child: Container(
-            height: 190,
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(colors: [Color(card.primaryColor), Color(card.secondaryColor)], begin: Alignment.topLeft, end: Alignment.bottomRight),
-              borderRadius: BorderRadius.circular(24),
-              boxShadow: const [BoxShadow(color: Colors.black54, blurRadius: 15, offset: Offset(0, 8))],
+    double totalHeight;
+    if (_expandedIndex == null) {
+      totalHeight = cardHeight + ((cards.length - 1) * headerPeek);
+    } else {
+      totalHeight = cardHeight + 30;
+    }
+
+    return SizedBox(
+      height: totalHeight,
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: List.generate(cards.length, (index) {
+          final card = cards[index];
+          final bool isSelected = _expandedIndex == index;
+
+          double topPosition;
+          double opacity = 1.0;
+
+          if (_expandedIndex == null) {
+            topPosition = index * headerPeek;
+          } else {
+            if (isSelected) {
+              topPosition = 0;
+            } else {
+              topPosition = cardHeight + 20;
+              opacity = 0.0;
+            }
+          }
+
+          return AnimatedPositioned(
+            duration: const Duration(milliseconds: 350),
+            curve: Curves.easeOutCubic,
+            top: topPosition,
+            left: 0,
+            right: 0,
+            child: AnimatedOpacity(
+              duration: const Duration(milliseconds: 250),
+              opacity: opacity,
+              child: GestureDetector(
+                onTap: () {
+                  setState(() {
+                    if (_expandedIndex == index) {
+                      _expandedIndex = null;
+                    } else {
+                      _expandedIndex = index;
+                    }
+                  });
+                },
+                child: _buildPhysicalCard(card, isSelected),
+              ),
             ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+          );
+        }),
+      ),
+    );
+  }
+
+  Widget _buildPhysicalCard(UserCardModel card, bool isExpanded) {
+    final bank = card.bank;
+
+    return Container(
+      height: 210,
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: bank.gradientColors,
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(22),
+        boxShadow: const [
+          BoxShadow(color: Colors.black54, blurRadius: 18, offset: Offset(0, 8)),
+        ],
+        border: Border.all(color: Colors.white.withValues(alpha: 0.15), width: 1),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                bank.cardTypeBadge ?? 'card',
+                style: TextStyle(color: bank.textColor.withValues(alpha: 0.8), fontSize: 13, fontWeight: FontWeight.w600, letterSpacing: 0.5),
+              ),
+              Row(
+                children: [
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Text(bank.name, style: TextStyle(color: bank.textColor, fontWeight: FontWeight.w900, fontSize: 15)),
+                      Text(bank.type, style: TextStyle(color: bank.textColor.withValues(alpha: 0.7), fontSize: 9.5)),
+                    ],
+                  ),
+                  const SizedBox(width: 8),
+                  Container(
+                    width: 32,
+                    height: 32,
+                    decoration: BoxDecoration(
+                      color: bank.logoBg,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.white24),
+                    ),
+                    child: Center(
+                      child: Icon(bank.logoIcon, color: bank.logoTextColor, size: 18),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          Row(
+            children: [
+              Container(
+                width: 44,
+                height: 32,
+                decoration: BoxDecoration(
+                  color: bank.chipColor,
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: Colors.black26),
+                ),
+                child: Center(
+                  child: Container(
+                    width: 28, height: 18,
+                    decoration: BoxDecoration(
+                      border: Border.all(color: Colors.black38, width: 0.8),
+                      borderRadius: BorderRadius.circular(3),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Transform.rotate(
+                angle: 1.5708,
+                child: Icon(Icons.wifi, size: 20, color: bank.textColor.withValues(alpha: 0.6)),
+              ),
+              const Spacer(),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text('الرصيد المتاح', style: TextStyle(color: bank.textColor.withValues(alpha: 0.7), fontSize: 10)),
+                  Text(
+                    '${card.balance.toStringAsFixed(2)} ج.م',
+                    style: TextStyle(color: bank.textColor, fontSize: 22, fontWeight: FontWeight.w900),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                card.cardNumber,
+                style: TextStyle(color: bank.textColor.withValues(alpha: 0.9), fontSize: 15, fontWeight: FontWeight.bold, letterSpacing: 2),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: Colors.black26,
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(
+                  bank.acronym,
+                  style: TextStyle(color: bank.textColor.withValues(alpha: 0.8), fontSize: 10, fontWeight: FontWeight.bold),
+                ),
+              )
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCardTransactions(UserCardModel card, bool isDark) {
+    if (card.transactions.isEmpty) {
+      return const Padding(
+        padding: EdgeInsets.all(20),
+        child: Text('لا توجد معاملات مسجلة على هذه البطاقة حتى الآن', style: TextStyle(color: Colors.grey)),
+      );
+    }
+
+    return ListView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      itemCount: card.transactions.length,
+      itemBuilder: (ctx, i) {
+        final tx = card.transactions[i];
+        return Dismissible(
+          key: Key(tx.date + tx.name + i.toString()),
+          direction: DismissDirection.endToStart,
+          background: Container(alignment: Alignment.centerLeft, padding: const EdgeInsets.only(left: 20), color: Colors.red, child: const Icon(Icons.delete, color: Colors.white)),
+          onDismissed: (_) => widget.appData.deleteTransaction(card.id, tx),
+          child: Container(
+            margin: const EdgeInsets.only(bottom: 8),
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF1C1C1E) : Colors.white,
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(color: Color(card.badgeBg).withValues(alpha: 0.2), borderRadius: BorderRadius.circular(8)),
-                      child: Text(card.acronym, style: TextStyle(color: Color(card.badgeBg), fontWeight: FontWeight.bold, fontSize: 12)),
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(color: (tx.isIncome ? Colors.green : Colors.red).withValues(alpha: 0.1), shape: BoxShape.circle),
+                      child: Icon(tx.isIncome ? Icons.south_west : Icons.north_east, color: tx.isIncome ? Colors.green : Colors.red, size: 18),
                     ),
-                    Text(card.name, style: const TextStyle(color: Colors.white70, fontSize: 12)),
+                    const SizedBox(width: 12),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(tx.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                        Text(tx.category, style: const TextStyle(color: Colors.grey, fontSize: 11)),
+                      ],
+                    ),
                   ],
                 ),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text('الرصيد المتاح', style: TextStyle(color: Colors.white70, fontSize: 11)),
-                    Text('${card.balance.toStringAsFixed(2)} ج.م', style: const TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.w900)),
-                  ],
+                Text(
+                  '${tx.isIncome ? '+' : '-'}${tx.amount.toStringAsFixed(0)} ج.م',
+                  style: TextStyle(fontWeight: FontWeight.w900, fontSize: 15, color: tx.isIncome ? Colors.green : Colors.redAccent),
                 ),
               ],
             ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 }
@@ -543,28 +1200,25 @@ class AnalyticsTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    Map<String, double> expensesByCategory = {};
+    Map<String, double> expenses = {};
     for (var card in appData.userCards) {
       for (var tx in card.transactions) {
-        if (!tx.isIncome) {
-          expensesByCategory[tx.category] = (expensesByCategory[tx.category] ?? 0) + tx.amount;
-        }
+        if (!tx.isIncome) expenses[tx.category] = (expenses[tx.category] ?? 0) + tx.amount;
       }
     }
-
-    final colors = [Colors.redAccent, Colors.blueAccent, Colors.orangeAccent, Colors.purpleAccent, Colors.teal];
-    int colorIdx = 0;
+    final colors = [Colors.redAccent, Colors.blueAccent, Colors.amber, Colors.purpleAccent, Colors.teal];
+    int cIdx = 0;
 
     return SafeArea(
       child: Padding(
-        padding: const EdgeInsets.all(16.0),
+        padding: const EdgeInsets.all(20.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('تحليل المصروفات', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 30),
-            if (expensesByCategory.isEmpty)
-              const Center(child: Text('لا توجد مصروفات مسجلة لتحليلها.'))
+            const Text('تحليل المصروفات', style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 25),
+            if (expenses.isEmpty)
+              const Center(child: Text('لا توجد مصروفات مسجلة'))
             else ...[
               SizedBox(
                 height: 220,
@@ -572,27 +1226,20 @@ class AnalyticsTab extends StatelessWidget {
                   PieChartData(
                     sectionsSpace: 2,
                     centerSpaceRadius: 50,
-                    sections: expensesByCategory.entries.map((e) {
-                      final color = colors[colorIdx++ % colors.length];
-                      return PieChartSectionData(
-                        color: color, value: e.value, title: e.key, radius: 50,
-                        titleStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white),
-                      );
+                    sections: expenses.entries.map((e) {
+                      final c = colors[cIdx++ % colors.length];
+                      return PieChartSectionData(color: c, value: e.value, title: e.key, radius: 50, titleStyle: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 12));
                     }).toList(),
                   ),
                 ),
               ),
-              const SizedBox(height: 30),
-              const Text('تفاصيل الصرف:', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 10),
+              const SizedBox(height: 25),
               Expanded(
                 child: ListView(
-                  children: expensesByCategory.entries.map((e) {
-                    return ListTile(
-                      title: Text(e.key, style: const TextStyle(fontWeight: FontWeight.bold)),
-                      trailing: Text('${e.value.toStringAsFixed(0)} ج.م', style: const TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
-                    );
-                  }).toList(),
+                  children: expenses.entries.map((e) => ListTile(
+                    title: Text(e.key, style: const TextStyle(fontWeight: FontWeight.bold)),
+                    trailing: Text('${e.value.toStringAsFixed(0)} ج.م', style: const TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold, fontSize: 15)),
+                  )).toList(),
                 ),
               )
             ]
@@ -612,79 +1259,60 @@ class BudgetTab extends StatefulWidget {
 }
 
 class _BudgetTabState extends State<BudgetTab> {
-  late TextEditingController _limitCtrl;
-
+  late TextEditingController _ctrl;
   @override
   void initState() {
     super.initState();
-    _limitCtrl = TextEditingController(text: widget.appData.dailyBudgetLimit.toStringAsFixed(0));
+    _ctrl = TextEditingController(text: widget.appData.dailyBudgetLimit.toStringAsFixed(0));
   }
 
   @override
   Widget build(BuildContext context) {
-    final todaySpent = widget.appData.getTodayExpenses();
+    final spent = widget.appData.getTodayExpenses();
     final limit = widget.appData.dailyBudgetLimit;
-    final double percentage = (todaySpent / limit).clamp(0.0, 1.0);
-    final isDanger = percentage > 0.8;
+    final double pct = (spent / limit).clamp(0.0, 1.0);
 
     return SafeArea(
       child: Padding(
-        padding: const EdgeInsets.all(16.0),
+        padding: const EdgeInsets.all(20.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('الميزانية اليومية', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+            const Text('الميزانية اليومية', style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold)),
             const SizedBox(height: 20),
             Container(
               padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                color: widget.appData.isDarkMode ? const Color(0xFF121A2B) : Colors.white,
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: isDanger ? Colors.red.withValues(alpha: 0.5) : (widget.appData.isDarkMode ? Colors.white10 : Colors.black12)),
-              ),
+              decoration: BoxDecoration(color: widget.appData.isDarkMode ? const Color(0xFF1C1C1E) : Colors.white, borderRadius: BorderRadius.circular(20)),
               child: Column(
                 children: [
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text('صرفت اليوم', style: TextStyle(color: Colors.grey)),
-                      Text('${todaySpent.toStringAsFixed(0)} / ${limit.toStringAsFixed(0)} ج.م', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                      const Text('مصروفات اليوم', style: TextStyle(color: Colors.grey)),
+                      Text('${spent.toStringAsFixed(0)} / ${limit.toStringAsFixed(0)} ج.م', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
                     ],
                   ),
                   const SizedBox(height: 15),
                   ClipRRect(
                     borderRadius: BorderRadius.circular(10),
-                    child: LinearProgressIndicator(
-                      value: percentage,
-                      minHeight: 12,
-                      backgroundColor: Colors.grey.withValues(alpha: 0.2),
-                      valueColor: AlwaysStoppedAnimation<Color>(isDanger ? Colors.red : const Color(0xFF10B981)),
-                    ),
+                    child: LinearProgressIndicator(value: pct, minHeight: 12, backgroundColor: Colors.grey.withValues(alpha: 0.2), valueColor: const AlwaysStoppedAnimation(Color(0xFF10B981))),
                   ),
-                  const SizedBox(height: 10),
-                  if (isDanger) const Text('احذر! لقد اقتربت من تجاوز ميزانيتك اليومية.', style: TextStyle(color: Colors.red, fontSize: 12))
                 ],
               ),
             ),
             const SizedBox(height: 30),
-            const Text('تعديل الحد اليومي للصرف:', style: TextStyle(fontWeight: FontWeight.bold)),
-            const SizedBox(height: 10),
-            TextField(
-              controller: _limitCtrl,
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(border: OutlineInputBorder(), labelText: 'المبلغ (ج.م)'),
-            ),
+            TextField(controller: _ctrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'تعديل سقف الصرف اليومي (ج.م)', border: OutlineInputBorder())),
             const SizedBox(height: 15),
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(
-                style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF10B981), padding: const EdgeInsets.symmetric(vertical: 14)),
+                style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF10B981), padding: const EdgeInsets.all(14)),
                 onPressed: () {
-                  final val = double.tryParse(_limitCtrl.text) ?? limit;
+                  final val = double.tryParse(_ctrl.text) ?? limit;
                   widget.appData.updateDailyLimit(val);
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تم تحديث الميزانية')));
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تم الحفظ')));
                 },
-                child: const Text('حفظ', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                child: const Text('حفظ', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
               ),
             )
           ],
@@ -703,34 +1331,40 @@ class SettingsTab extends StatelessWidget {
   Widget build(BuildContext context) {
     return SafeArea(
       child: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(20),
         children: [
-          const Text('الإعدادات', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+          const Text('الإعدادات', style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold)),
           const SizedBox(height: 20),
           ListTile(
-            leading: Icon(appData.isDarkMode ? Icons.dark_mode : Icons.light_mode, color: Colors.orange),
-            title: const Text('المظهر الداكن (Dark Mode)'),
-            trailing: Switch(value: appData.isDarkMode, onChanged: (v) => appData.toggleTheme(), activeColor: const Color(0xFF10B981)),
+            title: const Text('المظهر الداكن'),
+            trailing: Switch(value: appData.isDarkMode, onChanged: (_) => appData.toggleTheme(), activeColor: const Color(0xFF10B981)),
           ),
           const Divider(),
           ListTile(
-            leading: const Icon(Icons.sms, color: Colors.blue),
-            title: const Text('قراءة رسائل البنوك تلقائياً'),
-            subtitle: const Text('طلب صلاحية SMS لتحديث الأرصدة'),
+            leading: const Icon(Icons.notifications_active_rounded, color: Colors.blueAccent),
+            title: const Text('تفعيل الاستماع للإشعارات لحظياً'),
+            subtitle: const Text('لقراءة إشعارات التحويلات والسحب فور وصولها'),
             trailing: const Icon(Icons.arrow_forward_ios, size: 14),
-            onTap: () { ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('سيتم تفعيل هذه الميزة قريباً'))); },
-          ),
-          const Divider(),
-          ListTile(
-            leading: const Icon(Icons.delete_forever, color: Colors.red),
-            title: const Text('تصفير التطبيق (مسح كل البيانات)'),
-            onTap: () {
-              appData.clearAllData();
-              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تم مسح جميع الحسابات والمعاملات.')));
+            onTap: () async {
+              final status = await NotificationListenerService.isPermissionGranted();
+              if (!status) {
+                await NotificationListenerService.requestPermission();
+              } else {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('صلاحية الوصول للإشعارات مفعلة بالفعل')));
+                }
+              }
             },
           ),
-          const SizedBox(height: 40),
-          const Center(child: Text('قرشين - الإصدار 1.0', style: TextStyle(color: Colors.grey, fontSize: 12))),
+          const Divider(),
+          ListTile(
+            title: const Text('تصفير كل البطاقات والبيانات'),
+            leading: const Icon(Icons.delete, color: Colors.red),
+            onTap: () {
+              appData.clearAll();
+              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تم المسح')));
+            },
+          ),
         ],
       ),
     );
