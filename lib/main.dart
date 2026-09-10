@@ -9,6 +9,9 @@ import 'package:notification_listener_service/notification_listener_service.dart
 import 'package:local_auth/local_auth.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
 import 'institutions_data.dart';
 
 void main() async {
@@ -17,19 +20,54 @@ void main() async {
   runApp(QersheenApp(prefs: prefs));
 }
 
-class SavingsGoal {
+// ================= نماذج الأقساط والميزانيات =================
+class InstallmentModel {
   final String id;
   String title;
-  double targetAmount;
-  double savedAmount;
-  DateTime deadline;
+  String provider; // مثلا: فاليو، أمان، بنك مصر
+  double monthlyAmount;
+  int totalMonths;
+  int paidMonths;
+  int dueDayOfMonth;
 
-  SavingsGoal({required this.id, required this.title, required this.targetAmount, required this.savedAmount, required this.deadline});
+  InstallmentModel({
+    required this.id,
+    required this.title,
+    required this.provider,
+    required this.monthlyAmount,
+    required this.totalMonths,
+    required this.paidMonths,
+    required this.dueDayOfMonth,
+  });
 
-  Map<String, dynamic> toJson() => {'id': id, 'title': title, 'targetAmount': targetAmount, 'savedAmount': savedAmount, 'deadline': deadline.toIso8601String()};
-  factory SavingsGoal.fromJson(Map<String, dynamic> j) => SavingsGoal(
-    id: j['id'], title: j['title'], targetAmount: (j['targetAmount'] as num).toDouble(),
-    savedAmount: (j['savedAmount'] as num).toDouble(), deadline: DateTime.parse(j['deadline']),
+  double get remainingAmount => monthlyAmount * (totalMonths - paidMonths);
+  double get progress => totalMonths > 0 ? (paidMonths / totalMonths).clamp(0.0, 1.0) : 0.0;
+
+  Map<String, dynamic> toJson() => {
+    'id': id, 'title': title, 'provider': provider,
+    'monthlyAmount': monthlyAmount, 'totalMonths': totalMonths,
+    'paidMonths': paidMonths, 'dueDayOfMonth': dueDayOfMonth,
+  };
+
+  factory InstallmentModel.fromJson(Map<String, dynamic> j) => InstallmentModel(
+    id: j['id'], title: j['title'], provider: j['provider'] ?? 'عام',
+    monthlyAmount: (j['monthlyAmount'] as num).toDouble(),
+    totalMonths: j['totalMonths'] ?? 1,
+    paidMonths: j['paidMonths'] ?? 0,
+    dueDayOfMonth: j['dueDayOfMonth'] ?? 1,
+  );
+}
+
+class CategoryBudget {
+  final String category;
+  double monthlyLimit;
+
+  CategoryBudget({required this.category, required this.monthlyLimit});
+
+  Map<String, dynamic> toJson() => {'category': category, 'monthlyLimit': monthlyLimit};
+  factory CategoryBudget.fromJson(Map<String, dynamic> j) => CategoryBudget(
+    category: j['category'],
+    monthlyLimit: (j['monthlyLimit'] as num).toDouble(),
   );
 }
 
@@ -40,7 +78,8 @@ class AppData extends ChangeNotifier {
   bool isAuthenticated = false;
   double dailyBudgetLimit;
   List<UserCardModel> userCards = [];
-  List<SavingsGoal> savingsGoals = [];
+  List<InstallmentModel> installments = [];
+  Map<String, double> categoryBudgets = {};
   Set<String> processedMessageFingerprints = {};
   final LocalAuthentication _auth = LocalAuthentication();
 
@@ -48,8 +87,7 @@ class AppData extends ChangeNotifier {
       : isDarkMode = prefs.getBool('isDark') ?? true,
         isBiometricEnabled = prefs.getBool('isBioEnabled') ?? false,
         dailyBudgetLimit = prefs.getDouble('dailyLimit') ?? 600.0 {
-    _loadCards();
-    _loadGoals();
+    _loadAll();
     _startNotificationListener();
     _checkInitialAuth();
   }
@@ -98,8 +136,9 @@ class AppData extends ChangeNotifier {
     notifyListeners();
   }
 
-  void _loadCards() {
-    final String? cardsJson = prefs.getString('cardsData_v19');
+  void _loadAll() {
+    // 1. البطاقات
+    final String? cardsJson = prefs.getString('cardsData_v20');
     if (cardsJson != null && cardsJson.isNotEmpty) {
       final List<dynamic> decoded = jsonDecode(cardsJson);
       userCards = decoded.map((e) => UserCardModel.fromJson(e)).toList();
@@ -113,38 +152,87 @@ class AppData extends ChangeNotifier {
       saveCards();
     }
 
-    final List<String>? fps = prefs.getStringList('processed_fps_v19');
+    // 2. الأقساط
+    final String? instJson = prefs.getString('installments_v20');
+    if (instJson != null && instJson.isNotEmpty) {
+      final List<dynamic> decInst = jsonDecode(instJson);
+      installments = decInst.map((e) => InstallmentModel.fromJson(e)).toList();
+    }
+
+    // 3. ميزانيات التصنيفات
+    final String? budJson = prefs.getString('catBudgets_v20');
+    if (budJson != null && budJson.isNotEmpty) {
+      final Map<String, dynamic> decBud = jsonDecode(budJson);
+      categoryBudgets = decBud.map((k, v) => MapEntry(k, (v as num).toDouble()));
+    } else {
+      categoryBudgets = {
+        'فواتير ومشتريات': 3000.0,
+        'سوبرماركت ومأكولات': 4000.0,
+        'تحويلات': 2000.0,
+        'سحب كاش': 5000.0,
+        'عام': 1500.0,
+      };
+      saveCategoryBudgets();
+    }
+
+    final List<String>? fps = prefs.getStringList('processed_fps_v20');
     if (fps != null) processedMessageFingerprints = fps.toSet();
   }
 
-  void _loadGoals() {
-    final String? goalsJson = prefs.getString('goalsData_v19');
-    if (goalsJson != null && goalsJson.isNotEmpty) {
-      final List<dynamic> decoded = jsonDecode(goalsJson);
-      savingsGoals = decoded.map((e) => SavingsGoal.fromJson(e)).toList();
+  void saveCards() {
+    prefs.setString('cardsData_v20', jsonEncode(userCards.map((c) => c.toJson()).toList()));
+    prefs.setStringList('processed_fps_v20', processedMessageFingerprints.toList());
+    notifyListeners();
+  }
+
+  void saveInstallments() {
+    prefs.setString('installments_v20', jsonEncode(installments.map((i) => i.toJson()).toList()));
+    notifyListeners();
+  }
+
+  void saveCategoryBudgets() {
+    prefs.setString('catBudgets_v20', jsonEncode(categoryBudgets));
+    notifyListeners();
+  }
+
+  void addInstallment(String title, String provider, double monthly, int months, int dueDay) {
+    installments.add(InstallmentModel(
+      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      title: title,
+      provider: provider,
+      monthlyAmount: monthly,
+      totalMonths: months,
+      paidMonths: 0,
+      dueDayOfMonth: dueDay,
+    ));
+    saveInstallments();
+  }
+
+  void markInstallmentPaid(String id) {
+    final inst = installments.firstWhere((i) => i.id == id);
+    if (inst.paidMonths < inst.totalMonths) {
+      inst.paidMonths++;
+      saveInstallments();
     }
   }
 
-  void saveCards() {
-    prefs.setString('cardsData_v19', jsonEncode(userCards.map((c) => c.toJson()).toList()));
-    prefs.setStringList('processed_fps_v19', processedMessageFingerprints.toList());
-    notifyListeners();
+  void setCategoryBudget(String category, double limit) {
+    categoryBudgets[category] = limit;
+    saveCategoryBudgets();
   }
 
-  void saveGoals() {
-    prefs.setString('goalsData_v19', jsonEncode(savingsGoals.map((g) => g.toJson()).toList()));
-    notifyListeners();
-  }
-
-  void addGoal(String title, double target, DateTime deadline) {
-    savingsGoals.add(SavingsGoal(id: DateTime.now().millisecondsSinceEpoch.toString(), title: title, targetAmount: target, savedAmount: 0.0, deadline: deadline));
-    saveGoals();
-  }
-
-  void depositToGoal(String id, double amount) {
-    final g = savingsGoals.firstWhere((element) => element.id == id);
-    g.savedAmount += amount;
-    saveGoals();
+  double getCategoryMonthlySpent(String category) {
+    double total = 0.0;
+    final now = DateTime.now();
+    final monthStr = '/${now.month}/${now.year}';
+    for (var card in userCards) {
+      for (var tx in card.transactions) {
+        if (!tx.isIncome && (tx.category == category || (category == 'عام' && tx.category.isEmpty)) && tx.date.contains(monthStr)) {
+          total += tx.amount;
+        }
+      }
+    }
+    return total;
   }
 
   void addNewCard(BankEntity entity, {String? customId}) {
@@ -202,9 +290,7 @@ class AppData extends ChangeNotifier {
 
   double getTotalBalance() {
     double total = 0.0;
-    for (var c in userCards) {
-      total += c.balance;
-    }
+    for (var c in userCards) total += c.balance;
     return total;
   }
 
@@ -220,114 +306,79 @@ class AppData extends ChangeNotifier {
     return sum;
   }
 
-  Map<String, double> getMonthlyInsights() {
-    double totalIncome = 0.0;
-    double totalExpense = 0.0;
-    Map<String, double> categories = {};
+  // ================= تصدير كشف حساب PDF رسومي =================
+  Future<void> exportPdfReport() async {
+    final pdf = pw.Document();
+    final font = await PdfGoogleFonts.cairoRegular();
+    final fontBold = await PdfGoogleFonts.cairoBold();
 
+    double totalIn = 0.0;
+    double totalOut = 0.0;
     for (var c in userCards) {
-      for (var tx in c.transactions) {
-        if (tx.isIncome) {
-          totalIncome += tx.amount;
-        } else {
-          totalExpense += tx.amount;
-          categories[tx.category] = (categories[tx.category] ?? 0.0) + tx.amount;
-        }
-      }
-    }
-    final savingRate = totalIncome > 0 ? (((totalIncome - totalExpense) / totalIncome) * 100).clamp(0.0, 100.0) : 0.0;
-    return {
-      'income': totalIncome,
-      'expense': totalExpense,
-      'savingRate': savingRate,
-    };
-  }
-
-  Future<void> exportCsvReport() async {
-    final StringBuffer buffer = StringBuffer();
-    buffer.writeln('\uFEFFاسم الحساب,اسم المعاملة,التصنيف,المبلغ (ج.م),النوع,التاريخ');
-    for (var card in userCards) {
-      for (var tx in card.transactions) {
-        final typeStr = tx.isIncome ? 'دخل' : 'مصروف';
-        buffer.writeln('"${card.bank.name}","${tx.name}","${tx.category}",${tx.amount},"$typeStr","${tx.date}"');
+      for (var t in c.transactions) {
+        if (t.isIncome) totalIn += t.amount; else totalOut += t.amount;
       }
     }
 
-    final dir = Directory.systemTemp;
-    final file = File('${dir.path}/qersheen_report_${DateTime.now().millisecondsSinceEpoch}.csv');
-    await file.writeAsString(buffer.toString(), encoding: utf8);
-    await Share.shareXFiles([XFile(file.path)], text: 'تقرير المعاملات المالية - تطبيق قرشين');
+    pdf.addPage(
+      pw.MultiPage(
+        theme: pw.ThemeData.withFont(base: font, bold: fontBold),
+        textDirection: pw.TextDirection.rtl,
+        pageFormat: PdfPageFormat.a4,
+        build: (pw.Context context) => [
+          pw.Header(
+            level: 0,
+            child: pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+              children: [
+                pw.Text('تقرير المعاملات المالية - تطبيق قرشين', style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold, color: PdfColors.teal800)),
+                pw.Text('${DateTime.now().day}/${DateTime.now().month}/${DateTime.now().year}', style: const pw.TextStyle(fontSize: 12, color: PdfColors.grey700)),
+              ],
+            ),
+          ),
+          pw.SizedBox(height: 14),
+          pw.Container(
+            padding: const pw.EdgeInsets.all(12),
+            decoration: pw.BoxDecoration(color: PdfColors.grey100, borderRadius: pw.BorderRadius.circular(8)),
+            child: pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.spaceAround,
+              children: [
+                pw.Column(children: [pw.Text('إجمالي الدخل', style: const pw.TextStyle(fontSize: 11, color: PdfColors.grey700)), pw.Text('+${totalIn.toStringAsFixed(0)} ج.م', style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold, color: PdfColors.green800))]),
+                pw.Column(children: [pw.Text('إجمالي المصروفات', style: const pw.TextStyle(fontSize: 11, color: PdfColors.grey700)), pw.Text('-${totalOut.toStringAsFixed(0)} ج.م', style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold, color: PdfColors.red800))]),
+                pw.Column(children: [pw.Text('صافي الرصيد', style: const pw.TextStyle(fontSize: 11, color: PdfColors.grey700)), pw.Text('${(totalIn - totalOut).toStringAsFixed(0)} ج.م', style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold, color: PdfColors.teal800))]),
+              ],
+            ),
+          ),
+          pw.SizedBox(height: 18),
+          pw.Text('سجل المعاملات والعمليات:', style: pw.TextStyle(fontSize: 14, fontWeight: pw.FontWeight.bold)),
+          pw.SizedBox(height: 8),
+          pw.Table.fromTextArray(
+            headers: ['الحساب', 'المعاملة', 'التصنيف', 'المبلغ', 'التاريخ'],
+            headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold, color: PdfColors.white),
+            headerDecoration: const pw.BoxDecoration(color: PdfColors.teal800),
+            cellAlignment: pw.Alignment.centerRight,
+            data: userCards.expand((c) => c.transactions.take(30).map((t) => [
+              c.bank.name,
+              t.name,
+              t.category,
+              '${t.isIncome ? '+' : '-'}${t.amount.toStringAsFixed(0)} ج.م',
+              t.date,
+            ])).toList(),
+          ),
+        ],
+      ),
+    );
+
+    await Printing.sharePdf(bytes: await pdf.save(), filename: 'qersheen_financial_statement.pdf');
   }
 
   void clearAll() {
     userCards.clear();
     processedMessageFingerprints.clear();
-    savingsGoals.clear();
+    installments.clear();
     userCards.add(UserCardModel(id: 'cash_wallet_main', bankId: 'cash', cardIdentifier: 'محفظة النقود اليدوية', balance: 0.0, transactions: []));
     saveCards();
-    saveGoals();
-  }
-
-  Future<void> exportEncryptedBackup() async {
-    final payload = {
-      'version': '2.0',
-      'exportDate': DateTime.now().toIso8601String(),
-      'cards': userCards.map((c) => c.toJson()).toList(),
-      'goals': savingsGoals.map((g) => g.toJson()).toList(),
-      'fps': processedMessageFingerprints.toList(),
-    };
-    final jsonStr = jsonEncode(payload);
-    final encodedBase64 = base64Encode(utf8.encode(jsonStr));
-
-    final dir = Directory.systemTemp;
-    final file = File('${dir.path}/qersheen_backup_${DateTime.now().millisecondsSinceEpoch}.qersh');
-    await file.writeAsString(encodedBase64);
-    await Share.shareXFiles([XFile(file.path)], text: 'نسخة احتياطية مشفرة لمحفظة قرشين المالية');
-  }
-
-  Future<bool> importEncryptedBackup() async {
-    try {
-      final result = await FilePicker.platform.pickFiles();
-      if (result == null || result.files.single.path == null) return false;
-
-      final file = File(result.files.single.path!);
-      final content = await file.readAsString();
-      final jsonStr = utf8.decode(base64Decode(content.trim()));
-      final Map<String, dynamic> data = jsonDecode(jsonStr);
-
-      if (data.containsKey('cards')) {
-        final List<dynamic> cardsList = data['cards'];
-        userCards = cardsList.map((e) => UserCardModel.fromJson(e)).toList();
-        if (data.containsKey('goals')) {
-          final List<dynamic> gList = data['goals'];
-          savingsGoals = gList.map((e) => SavingsGoal.fromJson(e)).toList();
-        }
-        if (data.containsKey('fps')) {
-          processedMessageFingerprints = (data['fps'] as List).map((e) => e.toString()).toSet();
-        }
-        saveCards();
-        saveGoals();
-        return true;
-      }
-    } catch (_) {}
-    return false;
-  }
-
-  List<TransactionItem> getRecurringSubscriptions() {
-    Map<String, List<TransactionItem>> grouped = {};
-    for (var card in userCards) {
-      for (var tx in card.transactions) {
-        if (!tx.isIncome) {
-          final key = '${tx.name.trim()}_${tx.amount.toInt()}';
-          grouped.putIfAbsent(key, () => []).add(tx);
-        }
-      }
-    }
-    List<TransactionItem> recurring = [];
-    grouped.forEach((key, list) {
-      if (list.length >= 2) recurring.add(list.first);
-    });
-    return recurring;
+    saveInstallments();
   }
 
   void _startNotificationListener() {
@@ -478,11 +529,7 @@ class AppData extends ChangeNotifier {
         final timeStr = '${timestamp.hour.toString().padLeft(2, '0')}:${timestamp.minute.toString().padLeft(2, '0')} • ${timestamp.day}/${timestamp.month}/${timestamp.year}';
         
         if (!hasExplicitBalance) {
-          if (isIncome) {
-            card.balance += amt;
-          } else {
-            card.balance -= amt;
-          }
+          if (isIncome) card.balance += amt; else card.balance -= amt;
         }
 
         card.transactions.insert(0, TransactionItem(
@@ -620,9 +667,8 @@ class _MainLayoutScreenState extends State<MainLayoutScreen> {
     final isDark = widget.appData.isDarkMode;
     final pages = [
       AppleWalletScreen(appData: widget.appData),
-      SavingsGoalsView(appData: widget.appData),
-      FeeCalculatorView(appData: widget.appData),
-      SubscriptionsView(appData: widget.appData),
+      InstallmentsView(appData: widget.appData),
+      CategoryBudgetsView(appData: widget.appData),
       SettingsTabView(appData: widget.appData)
     ];
 
@@ -638,10 +684,9 @@ class _MainLayoutScreenState extends State<MainLayoutScreen> {
           mainAxisAlignment: MainAxisAlignment.spaceAround,
           children: [
             _barItem(0, Icons.wallet_rounded, 'المحفظة'),
-            _barItem(1, Icons.savings_rounded, 'الأهداف'),
-            _barItem(2, Icons.calculate_rounded, 'الحاسبة'),
-            _barItem(3, Icons.autorenew_rounded, 'الاشتراكات'),
-            _barItem(4, Icons.tune_rounded, 'الإعدادات'),
+            _barItem(1, Icons.credit_score_rounded, 'الأقساط'),
+            _barItem(2, Icons.pie_chart_rounded, 'الميزانيات'),
+            _barItem(3, Icons.tune_rounded, 'الإعدادات والـ PDF'),
           ],
         ),
       ),
@@ -676,7 +721,7 @@ class _MainLayoutScreenState extends State<MainLayoutScreen> {
     final titleCtrl = TextEditingController();
     final amtCtrl = TextEditingController();
     bool isExpense = true;
-    String category = 'مأكولات ومشروبات';
+    String category = 'سوبرماركت ومأكولات';
 
     showModalBottomSheet(
       context: ctx,
@@ -728,6 +773,7 @@ class _MainLayoutScreenState extends State<MainLayoutScreen> {
   }
 }
 
+// ================= شاشة المحفظة الرئيسية =================
 class AppleWalletScreen extends StatefulWidget {
   final AppData appData;
   const AppleWalletScreen({super.key, required this.appData});
@@ -790,7 +836,6 @@ class _AppleWalletScreenState extends State<AppleWalletScreen> {
     final isDark = widget.appData.isDarkMode;
     final todaySpent = widget.appData.getTodayExpenses();
     final isBudgetExceeded = todaySpent > widget.appData.dailyBudgetLimit;
-    final insights = widget.appData.getMonthlyInsights();
 
     return SafeArea(
       child: Column(
@@ -804,7 +849,7 @@ class _AppleWalletScreenState extends State<AppleWalletScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const Text('المحفظة', style: TextStyle(fontSize: 28, fontWeight: FontWeight.w900, letterSpacing: -0.5)),
-                    Text('إجمالي الرصيد: ${widget.appData.getTotalBalance().toStringAsFixed(0)} ج.م', style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                    Text('إجمالي الأرصدة: ${widget.appData.getTotalBalance().toStringAsFixed(0)} ج.م', style: const TextStyle(color: Colors.grey, fontSize: 12)),
                   ],
                 ),
                 IconButton(
@@ -818,26 +863,6 @@ class _AppleWalletScreenState extends State<AppleWalletScreen> {
                     }
                   },
                 ),
-              ],
-            ),
-          ),
-          // كارت التحليل المالي الذكي (Monthly Insights Banner)
-          Container(
-            margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(colors: [Colors.teal.shade900.withOpacity(0.5), Colors.blueGrey.shade900.withOpacity(0.5)]),
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: Colors.teal.withOpacity(0.3)),
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceAround,
-              children: [
-                Column(children: [const Text('معدل التوفير', style: TextStyle(color: Colors.grey, fontSize: 11)), Text('${insights['savingRate']!.toStringAsFixed(0)}%', style: const TextStyle(fontWeight: FontWeight.w900, color: Colors.tealAccent, fontSize: 16))]),
-                Container(width: 1, height: 28, color: Colors.white24),
-                Column(children: [const Text('إجمالي الدخل', style: TextStyle(color: Colors.grey, fontSize: 11)), Text('${insights['income']!.toStringAsFixed(0)} ج.م', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.greenAccent, fontSize: 14))]),
-                Container(width: 1, height: 28, color: Colors.white24),
-                Column(children: [const Text('المصروفات', style: TextStyle(color: Colors.grey, fontSize: 11)), Text('${insights['expense']!.toStringAsFixed(0)} ج.م', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.redAccent, fontSize: 14))]),
               ],
             ),
           ),
@@ -1071,25 +1096,28 @@ class _AppleWalletScreenState extends State<AppleWalletScreen> {
   }
 }
 
-// ================= شاشة أهداف التوفير والجمعيات =================
-class SavingsGoalsView extends StatelessWidget {
+// ================= شاشة الأقساط والـ BNPL =================
+class InstallmentsView extends StatelessWidget {
   final AppData appData;
-  const SavingsGoalsView({super.key, required this.appData});
+  const InstallmentsView({super.key, required this.appData});
 
-  void _showAddGoalDialog(BuildContext context) {
+  void _showAddInstallmentDialog(BuildContext context) {
     final titleCtrl = TextEditingController();
-    final targetCtrl = TextEditingController();
+    final provCtrl = TextEditingController();
+    final monthlyCtrl = TextEditingController();
+    final monthsCtrl = TextEditingController();
 
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('إضافة هدف توفير جديد'),
+        title: const Text('إضافة قسط جديد'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            TextField(controller: titleCtrl, decoration: const InputDecoration(labelText: 'اسم الهدف (مثل: جمعية، لابتوب)')),
-            const SizedBox(height: 10),
-            TextField(controller: targetCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'المبلغ المستهدف (ج.م)')),
+            TextField(controller: titleCtrl, decoration: const InputDecoration(labelText: 'السلعة / الغرض (مثل: موبايل iPhone)')),
+            TextField(controller: provCtrl, decoration: const InputDecoration(labelText: 'جهة التقسيط (مثل: فاليو، أمان، بنك مصر)')),
+            TextField(controller: monthlyCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'القسط الشهري (ج.م)')),
+            TextField(controller: monthsCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'إجمالي عدد الشهور')),
           ],
         ),
         actions: [
@@ -1097,38 +1125,14 @@ class SavingsGoalsView extends StatelessWidget {
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF10B981)),
             onPressed: () {
-              final t = double.tryParse(targetCtrl.text);
-              if (t != null && t > 0 && titleCtrl.text.isNotEmpty) {
-                appData.addGoal(titleCtrl.text, t, DateTime.now().add(const Duration(days: 90)));
+              final mAmt = double.tryParse(monthlyCtrl.text);
+              final mCount = int.tryParse(monthsCtrl.text);
+              if (mAmt != null && mCount != null && titleCtrl.text.isNotEmpty) {
+                appData.addInstallment(titleCtrl.text, provCtrl.text.isEmpty ? 'جهة تقسيط' : provCtrl.text, mAmt, mCount, 1);
                 Navigator.pop(ctx);
               }
             },
-            child: const Text('إنشاء', style: TextStyle(color: Colors.white)),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _showDepositDialog(BuildContext context, SavingsGoal g) {
-    final amtCtrl = TextEditingController();
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text('إيداع في: ${g.title}'),
-        content: TextField(controller: amtCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'المبلغ المودع')),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('إلغاء')),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF10B981)),
-            onPressed: () {
-              final a = double.tryParse(amtCtrl.text);
-              if (a != null && a > 0) {
-                appData.depositToGoal(g.id, a);
-                Navigator.pop(ctx);
-              }
-            },
-            child: const Text('إيداع', style: TextStyle(color: Colors.white)),
+            child: const Text('إضافة', style: TextStyle(color: Colors.white)),
           ),
         ],
       ),
@@ -1138,7 +1142,7 @@ class SavingsGoalsView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = appData.isDarkMode;
-    final goals = appData.savingsGoals;
+    final list = appData.installments;
 
     return SafeArea(
       child: Padding(
@@ -1149,21 +1153,21 @@ class SavingsGoalsView extends StatelessWidget {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text('أهداف التوفير والجمعيات', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
-                IconButton(icon: const Icon(Icons.add_circle, color: Color(0xFF10B981), size: 30), onPressed: () => _showAddGoalDialog(context)),
+                const Text('إدارة الأقساط والـ BNPL', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+                IconButton(icon: const Icon(Icons.add_circle, color: Color(0xFF10B981), size: 30), onPressed: () => _showAddInstallmentDialog(context)),
               ],
             ),
-            const SizedBox(height: 6),
-            const Text('حصالات مخصصة لتحقيق أهدافك المالية ومتابعة الأقساط', style: TextStyle(color: Colors.grey, fontSize: 12)),
+            const SizedBox(height: 4),
+            const Text('متابعة دقيقة لأقساط فاليو، أمان، والبطاقات الائتمانية البنكية', style: TextStyle(color: Colors.grey, fontSize: 12)),
             const SizedBox(height: 16),
             Expanded(
-              child: goals.isEmpty
-                  ? const Center(child: Text('لا توجد أهداف توفير حالية، اضغط + لإنشاء هدف جديد', style: TextStyle(color: Colors.grey)))
+              child: list.isEmpty
+                  ? const Center(child: Text('لا توجد أقساط مسجلة حالياً، اضغط + لإضافة قسط جديد', style: TextStyle(color: Colors.grey)))
                   : ListView.builder(
-                      itemCount: goals.length,
+                      itemCount: list.length,
                       itemBuilder: (ctx, i) {
-                        final g = goals[i];
-                        final progress = (g.savedAmount / g.targetAmount).clamp(0.0, 1.0);
+                        final inst = list[i];
+                        final isFinished = inst.paidMonths >= inst.totalMonths;
                         return Container(
                           margin: const EdgeInsets.only(bottom: 12),
                           padding: const EdgeInsets.all(16),
@@ -1174,13 +1178,33 @@ class SavingsGoalsView extends StatelessWidget {
                               Row(
                                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                 children: [
-                                  Text(g.title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                                  IconButton(icon: const Icon(Icons.add_box_rounded, color: Color(0xFF10B981)), onPressed: () => _showDepositDialog(context, g)),
+                                  Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(inst.title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                                      Text('${inst.provider} • القسط: ${inst.monthlyAmount.toStringAsFixed(0)} ج.م شهرياً', style: const TextStyle(color: Colors.grey, fontSize: 11)),
+                                    ],
+                                  ),
+                                  if (!isFinished)
+                                    ElevatedButton(
+                                      style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF10B981), padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4)),
+                                      onPressed: () => appData.markInstallmentPaid(inst.id),
+                                      child: const Text('سداد قسط', style: TextStyle(color: Colors.white, fontSize: 11)),
+                                    )
+                                  else
+                                    const Text('مكتمل السداد', style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold, fontSize: 12)),
                                 ],
                               ),
-                              Text('${g.savedAmount.toStringAsFixed(0)} من أصل ${g.targetAmount.toStringAsFixed(0)} ج.م', style: const TextStyle(color: Colors.grey, fontSize: 12)),
-                              const SizedBox(height: 8),
-                              LinearProgressIndicator(value: progress, minHeight: 8, backgroundColor: Colors.grey.withOpacity(0.2), valueColor: const AlwaysStoppedAnimation(Color(0xFF10B981))),
+                              const SizedBox(height: 10),
+                              LinearProgressIndicator(value: inst.progress, minHeight: 6, backgroundColor: Colors.grey.withOpacity(0.2), valueColor: AlwaysStoppedAnimation(isFinished ? Colors.green : const Color(0xFF10B981))),
+                              const SizedBox(height: 6),
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text('تم سداد: ${inst.paidMonths} من ${inst.totalMonths} شهر', style: const TextStyle(color: Colors.grey, fontSize: 11)),
+                                  Text('المتبقي: ${inst.remainingAmount.toStringAsFixed(0)} ج.م', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.redAccent, fontSize: 11)),
+                                ],
+                              ),
                             ],
                           ),
                         );
@@ -1194,65 +1218,90 @@ class SavingsGoalsView extends StatelessWidget {
   }
 }
 
-// ================= شاشة حاسبة الرسوم =================
-class FeeCalculatorView extends StatefulWidget {
+// ================= شاشة ميزانيات التصنيفات =================
+class CategoryBudgetsView extends StatelessWidget {
   final AppData appData;
-  const FeeCalculatorView({super.key, required this.appData});
+  const CategoryBudgetsView({super.key, required this.appData});
 
-  @override
-  State<FeeCalculatorView> createState() => _FeeCalculatorViewState();
-}
-
-class _FeeCalculatorViewState extends State<FeeCalculatorView> {
-  final amtCtrl = TextEditingController();
-  double calculatedFee = 0.0;
-  String feeType = 'atm_wallet';
-
-  void _calculate() {
-    final amt = double.tryParse(amtCtrl.text) ?? 0.0;
-    setState(() {
-      if (feeType == 'atm_wallet') {
-        calculatedFee = amt * 0.01; // 1% عمولة سحب محفظة من ATM
-      } else if (feeType == 'wallet_to_wallet') {
-        calculatedFee = amt > 0 ? 1.0 : 0.0; // رسوم تحويل محفظة لأخرى
-      } else {
-        calculatedFee = 0.0; // إنستاباي مجاني
-      }
-    });
+  void _showSetLimitDialog(BuildContext context, String cat, double current) {
+    final ctrl = TextEditingController(text: current.toStringAsFixed(0));
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('تعديل ميزانية: $cat'),
+        content: TextField(controller: ctrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'الحد الشهري الأقصى (ج.م)')),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('إلغاء')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF10B981)),
+            onPressed: () {
+              final val = double.tryParse(ctrl.text);
+              if (val != null && val > 0) {
+                appData.setCategoryBudget(cat, val);
+                Navigator.pop(ctx);
+              }
+            },
+            child: const Text('حفظ', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
+    final isDark = appData.isDarkMode;
+    final budgets = appData.categoryBudgets;
+
     return SafeArea(
       child: Padding(
         padding: const EdgeInsets.all(20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('حاسبة رسوم التحويل والسحب', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 6),
-            const Text('احسب عمولة السحب والتحويل مسبقاً قبل تنفيذ المعاملة', style: TextStyle(color: Colors.grey, fontSize: 12)),
-            const SizedBox(height: 20),
-            TextField(controller: amtCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'المبلغ المطلوب سحبه أو تحويله', border: OutlineInputBorder()), onChanged: (_) => _calculate()),
-            const SizedBox(height: 14),
-            Wrap(
-              spacing: 8,
-              children: [
-                ChoiceChip(label: const Text('سحب محفظة من ATM (1%)'), selected: feeType == 'atm_wallet', onSelected: (_) { setState(() => feeType = 'atm_wallet'); _calculate(); }),
-                ChoiceChip(label: const Text('تحويل إنستاباي (0%)'), selected: feeType == 'instapay', onSelected: (_) { setState(() => feeType = 'instapay'); _calculate(); }),
-                ChoiceChip(label: const Text('تحويل محفظة لأخرى'), selected: feeType == 'wallet_to_wallet', onSelected: (_) { setState(() => feeType = 'wallet_to_wallet'); _calculate(); }),
-              ],
-            ),
-            const SizedBox(height: 24),
-            Container(
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(color: widget.appData.isDarkMode ? const Color(0xFF1C1C1E) : Colors.white, borderRadius: BorderRadius.circular(16)),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text('الرسوم المتوقعة:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                  Text('${calculatedFee.toStringAsFixed(2)} ج.م', style: const TextStyle(fontWeight: FontWeight.w900, color: Colors.redAccent, fontSize: 20)),
-                ],
+            const Text('أسقف ميزانية التصنيفات', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 4),
+            const Text('تحكم شهري محدد لكل بند ومتابعة نسبة الاستهلاك', style: TextStyle(color: Colors.grey, fontSize: 12)),
+            const SizedBox(height: 16),
+            Expanded(
+              child: ListView(
+                children: budgets.entries.map((entry) {
+                  final cat = entry.key;
+                  final limit = entry.value;
+                  final spent = appData.getCategoryMonthlySpent(cat);
+                  final pct = limit > 0 ? (spent / limit).clamp(0.0, 1.0) : 0.0;
+                  final isExceeded = spent > limit;
+
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 12),
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: isDark ? const Color(0xFF1C1C1E) : Colors.white,
+                      borderRadius: BorderRadius.circular(16),
+                      border: isExceeded ? Border.all(color: Colors.redAccent.withOpacity(0.5)) : null,
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(cat, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                            IconButton(icon: const Icon(Icons.edit, size: 16, color: Colors.grey), onPressed: () => _showSetLimitDialog(context, cat, limit)),
+                          ],
+                        ),
+                        Text('${spent.toStringAsFixed(0)} من أصل ${limit.toStringAsFixed(0)} ج.م (${(pct * 100).toStringAsFixed(0)}%)', style: TextStyle(color: isExceeded ? Colors.redAccent : Colors.grey, fontSize: 12, fontWeight: isExceeded ? FontWeight.bold : FontWeight.normal)),
+                        const SizedBox(height: 8),
+                        LinearProgressIndicator(
+                          value: pct,
+                          minHeight: 7,
+                          backgroundColor: Colors.grey.withOpacity(0.2),
+                          valueColor: AlwaysStoppedAnimation(pct >= 1.0 ? Colors.redAccent : (pct >= 0.8 ? Colors.amber : const Color(0xFF10B981))),
+                        ),
+                      ],
+                    ),
+                  );
+                }).toList(),
               ),
             ),
           ],
@@ -1262,85 +1311,28 @@ class _FeeCalculatorViewState extends State<FeeCalculatorView> {
   }
 }
 
-class SubscriptionsView extends StatelessWidget {
-  final AppData appData;
-  const SubscriptionsView({super.key, required this.appData});
-
-  @override
-  Widget build(BuildContext context) {
-    final subs = appData.getRecurringSubscriptions();
-    final isDark = appData.isDarkMode;
-
-    return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text('الاشتراكات والالتزامات المتكررة', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 6),
-            const Text('رصد ذكي تلقائي للفواتير والاشتراكات الشهرية المتكررة بحساباتك', style: TextStyle(color: Colors.grey, fontSize: 12)),
-            const SizedBox(height: 16),
-            Expanded(
-              child: subs.isEmpty
-                  ? const Center(child: Text('لم يتم رصد اشتراكات دورية متكررة بعد', style: TextStyle(color: Colors.grey)))
-                  : ListView.builder(
-                      itemCount: subs.length,
-                      itemBuilder: (ctx, i) {
-                        final item = subs[i];
-                        return Container(
-                          margin: const EdgeInsets.only(bottom: 10),
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(color: isDark ? const Color(0xFF1C1C1E) : Colors.white, borderRadius: BorderRadius.circular(16)),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Row(
-                                children: [
-                                  Container(
-                                    padding: const EdgeInsets.all(10),
-                                    decoration: BoxDecoration(color: Colors.purpleAccent.withOpacity(0.15), shape: BoxShape.circle),
-                                    child: const Icon(Icons.event_repeat_rounded, color: Colors.purpleAccent, size: 22),
-                                  ),
-                                  const SizedBox(width: 14),
-                                  Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(item.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-                                      const SizedBox(height: 3),
-                                      const Text('التكرار: شهرياً تلقائياً', style: TextStyle(color: Colors.grey, fontSize: 11)),
-                                    ],
-                                  ),
-                                ],
-                              ),
-                              Text('${item.amount.toStringAsFixed(0)} ج.م', style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 16, color: Colors.redAccent)),
-                            ],
-                          ),
-                        );
-                      },
-                    ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
+// ================= شاشة الإعدادات والتقارير والـ PDF =================
 class SettingsTabView extends StatelessWidget {
   final AppData appData;
   const SettingsTabView({super.key, required this.appData});
 
   @override
   Widget build(BuildContext context) {
-    final limitCtrl = TextEditingController(text: appData.dailyBudgetLimit.toStringAsFixed(0));
-
     return SafeArea(
       child: ListView(
         padding: const EdgeInsets.all(20),
         children: [
-          const Text('الإعدادات والتقارير', style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold)),
+          const Text('الإعدادات والتقارير الرسمية', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
           const SizedBox(height: 20),
+          ListTile(
+            leading: const Icon(Icons.picture_as_pdf_rounded, color: Colors.redAccent, size: 28),
+            title: const Text('تصدير كشف حساب PDF رسمي'),
+            subtitle: const Text('ملف ملون ومنسق بجميع الحركات والإجماليات جاهز للطباعة'),
+            onTap: () async {
+              await appData.exportPdfReport();
+            },
+          ),
+          const Divider(),
           ListTile(
             leading: const Icon(Icons.fingerprint_rounded, color: Color(0xFF10B981)),
             title: const Text('قفل التطبيق بالبصمة (Biometrics)'),
@@ -1351,68 +1343,6 @@ class SettingsTabView extends StatelessWidget {
               onChanged: (val) => appData.toggleBiometric(val),
             ),
           ),
-          const Divider(),
-          ListTile(
-            leading: const Icon(Icons.table_view_rounded, color: Colors.teal),
-            title: const Text('تصدير كشف حساب Excel / CSV'),
-            subtitle: const Text('استخراج تقرير جدول بجميع الحركات لمراجعته أو مشاركته'),
-            onTap: () async {
-              await appData.exportCsvReport();
-              if (context.mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تم تصدير ملف التقرير')));
-              }
-            },
-          ),
-          ListTile(
-            leading: const Icon(Icons.file_upload_outlined, color: Colors.blueAccent),
-            title: const Text('تصدير نسخة احتياطية مشفرة (.qersh)'),
-            subtitle: const Text('حفظ جميع البطاقات والمعاملات مشفرة ومشاركتها بأمان'),
-            onTap: () async {
-              await appData.exportEncryptedBackup();
-              if (context.mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تم تجهيز النسخة المشفرة')));
-              }
-            },
-          ),
-          ListTile(
-            leading: const Icon(Icons.file_download_outlined, color: Colors.amber),
-            title: const Text('استيراد نسخة احتياطية مشفرة'),
-            subtitle: const Text('استعادة كافة البيانات من ملف سابق'),
-            onTap: () async {
-              final ok = await appData.importEncryptedBackup();
-              if (context.mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(ok ? 'تمت استعادة البيانات بنجاح' : 'فشل الاستيراد أو تم الإلغاء')));
-              }
-            },
-          ),
-          const Divider(),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: limitCtrl,
-                    keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(labelText: 'سقف الميزانية اليومية (ج.م)', border: OutlineInputBorder()),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                ElevatedButton(
-                  style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF10B981)),
-                  onPressed: () {
-                    final l = double.tryParse(limitCtrl.text);
-                    if (l != null && l > 0) {
-                      appData.updateDailyLimit(l);
-                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تم تحديث سقف الميزانية')));
-                    }
-                  },
-                  child: const Text('حفظ', style: TextStyle(color: Colors.white)),
-                ),
-              ],
-            ),
-          ),
-          const Divider(),
           ListTile(
             leading: const Icon(Icons.battery_saver_rounded, color: Colors.green),
             title: const Text('استثناء من قيود البطارية (خلفية)'),

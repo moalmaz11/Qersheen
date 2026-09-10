@@ -17,6 +17,8 @@ dependencies:
   local_auth: ^3.0.2
   file_picker: ^12.2.0
   share_plus: ^13.3.0
+  pdf: ^3.13.0
+  printing: ^5.15.0
 
 dev_dependencies:
   flutter_test:
