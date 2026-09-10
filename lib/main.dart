@@ -20,7 +20,6 @@ void main() async {
   runApp(QersheenApp(prefs: prefs));
 }
 
-// ================= نظام الترجمة والثنائية (Localization) =================
 class AppStrings {
   static Map<String, Map<String, String>> translations = {
     'ar': {
@@ -122,7 +121,7 @@ class AppData extends ChangeNotifier {
   bool isDarkMode;
   bool isBiometricEnabled;
   bool isAuthenticated = false;
-  String language; // 'ar' أو 'en'
+  String language;
   double dailyBudgetLimit;
   List<UserCardModel> userCards = [];
   List<InstallmentModel> installments = [];
@@ -160,7 +159,6 @@ class AppData extends ChangeNotifier {
       }
       final didAuth = await _auth.authenticate(
         localizedReason: language == 'ar' ? 'يرجى تأكيد هويتك لفتح محفظة قرشين بأمان' : 'Please authenticate to open Qersheen',
-        options: const AuthenticationOptions(stickyAuth: true, biometricOnly: false),
       );
       isAuthenticated = didAuth;
       notifyListeners();
@@ -191,7 +189,7 @@ class AppData extends ChangeNotifier {
   }
 
   void _loadAll() {
-    final String? cardsJson = prefs.getString('cardsData_v22');
+    final String? cardsJson = prefs.getString('cardsData_v23');
     if (cardsJson != null && cardsJson.isNotEmpty) {
       final List<dynamic> decoded = jsonDecode(cardsJson);
       userCards = decoded.map((e) => UserCardModel.fromJson(e)).toList();
@@ -205,13 +203,13 @@ class AppData extends ChangeNotifier {
       saveCards();
     }
 
-    final String? instJson = prefs.getString('installments_v22');
+    final String? instJson = prefs.getString('installments_v23');
     if (instJson != null && instJson.isNotEmpty) {
       final List<dynamic> decInst = jsonDecode(instJson);
       installments = decInst.map((e) => InstallmentModel.fromJson(e)).toList();
     }
 
-    final String? budJson = prefs.getString('catBudgets_v22');
+    final String? budJson = prefs.getString('catBudgets_v23');
     if (budJson != null && budJson.isNotEmpty) {
       final Map<String, dynamic> decBud = jsonDecode(budJson);
       categoryBudgets = decBud.map((k, v) => MapEntry(k, (v as num).toDouble()));
@@ -226,23 +224,23 @@ class AppData extends ChangeNotifier {
       saveCategoryBudgets();
     }
 
-    final List<String>? fps = prefs.getStringList('processed_fps_v22');
+    final List<String>? fps = prefs.getStringList('processed_fps_v23');
     if (fps != null) processedMessageFingerprints = fps.toSet();
   }
 
   void saveCards() {
-    prefs.setString('cardsData_v22', jsonEncode(userCards.map((c) => c.toJson()).toList()));
-    prefs.setStringList('processed_fps_v22', processedMessageFingerprints.toList());
+    prefs.setString('cardsData_v23', jsonEncode(userCards.map((c) => c.toJson()).toList()));
+    prefs.setStringList('processed_fps_v23', processedMessageFingerprints.toList());
     notifyListeners();
   }
 
   void saveInstallments() {
-    prefs.setString('installments_v22', jsonEncode(installments.map((i) => i.toJson()).toList()));
+    prefs.setString('installments_v23', jsonEncode(installments.map((i) => i.toJson()).toList()));
     notifyListeners();
   }
 
   void saveCategoryBudgets() {
-    prefs.setString('catBudgets_v22', jsonEncode(categoryBudgets));
+    prefs.setString('catBudgets_v23', jsonEncode(categoryBudgets));
     notifyListeners();
   }
 
