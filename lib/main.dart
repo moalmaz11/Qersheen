@@ -76,13 +76,18 @@ class AppData extends ChangeNotifier {
     notifyListeners();
   }
 
+  void updateDailyLimit(double limit) {
+    dailyBudgetLimit = limit;
+    prefs.setDouble('dailyLimit', limit);
+    notifyListeners();
+  }
+
   void _loadCards() {
-    final String? cardsJson = prefs.getString('cardsData_v17');
+    final String? cardsJson = prefs.getString('cardsData_v18');
     if (cardsJson != null && cardsJson.isNotEmpty) {
       final List<dynamic> decoded = jsonDecode(cardsJson);
       userCards = decoded.map((e) => UserCardModel.fromJson(e)).toList();
     } else {
-      // إنشاء محفظة الكاش النقدية الافتراضية
       userCards = [
         UserCardModel(
           id: 'cash_wallet_main',
@@ -95,7 +100,7 @@ class AppData extends ChangeNotifier {
       saveCards();
     }
 
-    final List<String>? fps = prefs.getStringList('processed_fps_v17');
+    final List<String>? fps = prefs.getStringList('processed_fps_v18');
     if (fps != null) {
       processedMessageFingerprints = fps.toSet();
     }
@@ -103,8 +108,8 @@ class AppData extends ChangeNotifier {
 
   void saveCards() {
     final String encoded = jsonEncode(userCards.map((c) => c.toJson()).toList());
-    prefs.setString('cardsData_v17', encoded);
-    prefs.setStringList('processed_fps_v17', processedMessageFingerprints.toList());
+    prefs.setString('cardsData_v18', encoded);
+    prefs.setStringList('processed_fps_v18', processedMessageFingerprints.toList());
     notifyListeners();
   }
 
@@ -152,6 +157,62 @@ class AppData extends ChangeNotifier {
     saveCards();
   }
 
+  void editTransaction(String cardId, int txIndex, {required String newName, required double newAmount, required String newCategory}) {
+    final card = userCards.firstWhere((c) => c.id == cardId);
+    final oldTx = card.transactions[txIndex];
+    
+    // ضبط الرصيد بناء على التعديل الجديد
+    final diff = newAmount - oldTx.amount;
+    if (diff != 0) {
+      if (oldTx.isIncome) {
+        card.balance += diff;
+      } else {
+        card.balance -= diff;
+      }
+    }
+
+    card.transactions[txIndex] = TransactionItem(
+      name: newName,
+      subtitle: oldTx.subtitle,
+      date: oldTx.date,
+      amount: newAmount,
+      isIncome: oldTx.isIncome,
+      category: newCategory,
+      txFingerprint: oldTx.txFingerprint,
+    );
+    saveCards();
+  }
+
+  double getTodayExpenses() {
+    double sum = 0.0;
+    final now = DateTime.now();
+    final todayStr = '${now.day}/${now.month}/${now.year}';
+    for (var card in userCards) {
+      for (var tx in card.transactions) {
+        if (!tx.isIncome && tx.date.contains(todayStr)) {
+          sum += tx.amount;
+        }
+      }
+    }
+    return sum;
+  }
+
+  Future<void> exportCsvReport() async {
+    final StringBuffer buffer = StringBuffer();
+    buffer.writeln('\uFEFFاسم الحساب,اسم المعاملة,التصنيف,المبلغ (ج.م),النوع,التاريخ');
+    for (var card in userCards) {
+      for (var tx in card.transactions) {
+        final typeStr = tx.isIncome ? 'دخل' : 'مصروف';
+        buffer.writeln('"${card.bank.name}","${tx.name}","${tx.category}",${tx.amount},"$typeStr","${tx.date}"');
+      }
+    }
+
+    final dir = Directory.systemTemp;
+    final file = File('${dir.path}/qersheen_report_${DateTime.now().millisecondsSinceEpoch}.csv');
+    await file.writeAsString(buffer.toString(), encoding: utf8);
+    await Share.shareXFiles([XFile(file.path)], text: 'تقرير المعاملات المالية - تطبيق قرشين');
+  }
+
   void clearAll() {
     userCards.clear();
     processedMessageFingerprints.clear();
@@ -159,7 +220,6 @@ class AppData extends ChangeNotifier {
     saveCards();
   }
 
-  // ميزة النسخ الاحتياطي والتصدير المشفر
   Future<void> exportEncryptedBackup() async {
     final payload = {
       'version': '1.0',
@@ -202,7 +262,6 @@ class AppData extends ChangeNotifier {
     return false;
   }
 
-  // كشف الاشتراكات الشهرية المتكررة
   List<TransactionItem> getRecurringSubscriptions() {
     Map<String, List<TransactionItem>> grouped = {};
     for (var card in userCards) {
@@ -468,7 +527,6 @@ class QersheenApp extends StatelessWidget {
   }
 }
 
-// ================= شاشة القفل البيومتري =================
 class AuthLockScreen extends StatelessWidget {
   final AppData appData;
   const AuthLockScreen({super.key, required this.appData});
@@ -503,7 +561,6 @@ class AuthLockScreen extends StatelessWidget {
   }
 }
 
-// ================= الهيكل الأساسي للتطبيق =================
 class MainLayoutScreen extends StatefulWidget {
   final AppData appData;
   const MainLayoutScreen({super.key, required this.appData});
@@ -624,7 +681,6 @@ class _MainLayoutScreenState extends State<MainLayoutScreen> {
   }
 }
 
-// ================= شاشة المحفظة المحدثة بالبحث والفلترة =================
 class AppleWalletScreen extends StatefulWidget {
   final AppData appData;
   const AppleWalletScreen({super.key, required this.appData});
@@ -637,10 +693,56 @@ class _AppleWalletScreenState extends State<AppleWalletScreen> {
   int? _expandedIndex;
   String searchQuery = '';
 
+  void _showEditSheet(UserCardModel card, int txIndex, TransactionItem tx) {
+    final titleCtrl = TextEditingController(text: tx.name);
+    final amtCtrl = TextEditingController(text: tx.amount.toStringAsFixed(0));
+    String selectedCategory = tx.category;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: widget.appData.isDarkMode ? const Color(0xFF1C1C1E) : Colors.white,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (ctx) => Padding(
+        padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom, top: 20, left: 20, right: 20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('تعديل تفاصيل المعاملة', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 12),
+            TextField(controller: titleCtrl, decoration: const InputDecoration(labelText: 'اسم المعاملة / المتجر', border: OutlineInputBorder())),
+            const SizedBox(height: 12),
+            TextField(controller: amtCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'المبلغ', border: OutlineInputBorder())),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF10B981), padding: const EdgeInsets.all(14)),
+                onPressed: () {
+                  final newAmt = double.tryParse(amtCtrl.text);
+                  if (newAmt != null && newAmt > 0 && titleCtrl.text.isNotEmpty) {
+                    widget.appData.editTransaction(card.id, txIndex, newName: titleCtrl.text, newAmount: newAmt, newCategory: selectedCategory);
+                    Navigator.pop(ctx);
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تم حفظ التعديلات بنجاح')));
+                  }
+                },
+                child: const Text('حفظ التعديل', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+              ),
+            ),
+            const SizedBox(height: 20),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final cards = widget.appData.userCards;
     final isDark = widget.appData.isDarkMode;
+    final todaySpent = widget.appData.getTodayExpenses();
+    final isBudgetExceeded = todaySpent > widget.appData.dailyBudgetLimit;
 
     return SafeArea(
       child: Column(
@@ -669,7 +771,24 @@ class _AppleWalletScreenState extends State<AppleWalletScreen> {
               ],
             ),
           ),
-          // شريط البحث اللحظي في المعاملات
+          if (isBudgetExceeded)
+            Container(
+              margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(color: Colors.redAccent.withOpacity(0.15), borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.redAccent)),
+              child: Row(
+                children: [
+                  const Icon(Icons.warning_amber_rounded, color: Colors.redAccent),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'تنبيه: تجاوزت سقف الميزانية اليومي! مصروفك اليوم: ${todaySpent.toStringAsFixed(0)} ج.م من أصل ${widget.appData.dailyBudgetLimit.toStringAsFixed(0)} ج.م',
+                      style: const TextStyle(color: Colors.redAccent, fontSize: 12, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
             child: TextField(
@@ -827,12 +946,16 @@ class _AppleWalletScreenState extends State<AppleWalletScreen> {
   }
 
   Widget _buildFilteredTransactions(UserCardModel card, bool isDark) {
-    final filtered = card.transactions.where((tx) {
-      if (searchQuery.isEmpty) return true;
-      return tx.name.toLowerCase().contains(searchQuery) ||
+    final filtered = <MapEntry<int, TransactionItem>>[];
+    for (int i = 0; i < card.transactions.length; i++) {
+      final tx = card.transactions[i];
+      if (searchQuery.isEmpty ||
+          tx.name.toLowerCase().contains(searchQuery) ||
           (tx.subtitle != null && tx.subtitle!.toLowerCase().contains(searchQuery)) ||
-          tx.amount.toString().contains(searchQuery);
-    }).toList();
+          tx.amount.toString().contains(searchQuery)) {
+        filtered.add(MapEntry(i, tx));
+      }
+    }
 
     if (filtered.isEmpty) {
       return const Padding(padding: EdgeInsets.all(20), child: Text('لا توجد معاملات مطابقة للبحث', style: TextStyle(color: Colors.grey)));
@@ -843,31 +966,35 @@ class _AppleWalletScreenState extends State<AppleWalletScreen> {
       physics: const NeverScrollableScrollPhysics(),
       padding: const EdgeInsets.symmetric(horizontal: 20),
       itemCount: filtered.length,
-      itemBuilder: (ctx, i) {
-        final tx = filtered[i];
-        return Container(
-          margin: const EdgeInsets.only(bottom: 8),
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(color: isDark ? const Color(0xFF1C1C1E) : Colors.white, borderRadius: BorderRadius.circular(16)),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Row(
-                children: [
-                  Icon(tx.isIncome ? Icons.south_west_rounded : Icons.north_east_rounded, color: tx.isIncome ? Colors.green : Colors.redAccent, size: 22),
-                  const SizedBox(width: 12),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(tx.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                      if (tx.subtitle != null) Text(tx.subtitle!, style: const TextStyle(color: Colors.blueAccent, fontSize: 11)),
-                      Text('${tx.category} • ${tx.date}', style: const TextStyle(color: Colors.grey, fontSize: 11)),
-                    ],
-                  ),
-                ],
-              ),
-              Text('${tx.isIncome ? '+' : '-'}${tx.amount.toStringAsFixed(0)} ج.م', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 15, color: tx.isIncome ? Colors.green : Colors.redAccent)),
-            ],
+      itemBuilder: (ctx, idx) {
+        final originalIndex = filtered[idx].key;
+        final tx = filtered[idx].value;
+        return InkWell(
+          onLongPress: () => _showEditSheet(card, originalIndex, tx),
+          child: Container(
+            margin: const EdgeInsets.only(bottom: 8),
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(color: isDark ? const Color(0xFF1C1C1E) : Colors.white, borderRadius: BorderRadius.circular(16)),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Row(
+                  children: [
+                    Icon(tx.isIncome ? Icons.south_west_rounded : Icons.north_east_rounded, color: tx.isIncome ? Colors.green : Colors.redAccent, size: 22),
+                    const SizedBox(width: 12),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(tx.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                        if (tx.subtitle != null) Text(tx.subtitle!, style: const TextStyle(color: Colors.blueAccent, fontSize: 11)),
+                        Text('${tx.category} • ${tx.date}', style: const TextStyle(color: Colors.grey, fontSize: 11)),
+                      ],
+                    ),
+                  ],
+                ),
+                Text('${tx.isIncome ? '+' : '-'}${tx.amount.toStringAsFixed(0)} ج.م', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 15, color: tx.isIncome ? Colors.green : Colors.redAccent)),
+              ],
+            ),
           ),
         );
       },
@@ -875,7 +1002,6 @@ class _AppleWalletScreenState extends State<AppleWalletScreen> {
   }
 }
 
-// ================= شاشة الاشتراكات والالتزامات الشهرية =================
 class SubscriptionsView extends StatelessWidget {
   final AppData appData;
   const SubscriptionsView({super.key, required this.appData});
@@ -941,18 +1067,19 @@ class SubscriptionsView extends StatelessWidget {
   }
 }
 
-// ================= شاشة الإعدادات والنسخ المشفر =================
 class SettingsTabView extends StatelessWidget {
   final AppData appData;
   const SettingsTabView({super.key, required this.appData});
 
   @override
   Widget build(BuildContext context) {
+    final limitCtrl = TextEditingController(text: appData.dailyBudgetLimit.toStringAsFixed(0));
+
     return SafeArea(
       child: ListView(
         padding: const EdgeInsets.all(20),
         children: [
-          const Text('الأمان والنسخ الاحتياطي', style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold)),
+          const Text('الإعدادات والتقارير', style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold)),
           const SizedBox(height: 20),
           ListTile(
             leading: const Icon(Icons.fingerprint_rounded, color: Color(0xFF10B981)),
@@ -965,6 +1092,17 @@ class SettingsTabView extends StatelessWidget {
             ),
           ),
           const Divider(),
+          ListTile(
+            leading: const Icon(Icons.table_view_rounded, color: Colors.teal),
+            title: const Text('تصدير كشف حساب Excel / CSV'),
+            subtitle: const Text('استخراج تقرير جدول بجميع الحركات لمراجعته أو مشاركته'),
+            onTap: () async {
+              await appData.exportCsvReport();
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تم تصدير ملف التقرير')));
+              }
+            },
+          ),
           ListTile(
             leading: const Icon(Icons.file_upload_outlined, color: Colors.blueAccent),
             title: const Text('تصدير نسخة احتياطية مشفرة (.qersh)'),
@@ -986,6 +1124,33 @@ class SettingsTabView extends StatelessWidget {
                 ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(ok ? 'تمت استعادة البيانات بنجاح' : 'فشل الاستيراد أو تم الإلغاء')));
               }
             },
+          ),
+          const Divider(),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: limitCtrl,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(labelText: 'سقف الميزانية اليومية (ج.م)', border: OutlineInputBorder()),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF10B981)),
+                  onPressed: () {
+                    final l = double.tryParse(limitCtrl.text);
+                    if (l != null && l > 0) {
+                      appData.updateDailyLimit(l);
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تم تحديث سقف الميزانية')));
+                    }
+                  },
+                  child: const Text('حفظ', style: TextStyle(color: Colors.white)),
+                ),
+              ],
+            ),
           ),
           const Divider(),
           ListTile(
