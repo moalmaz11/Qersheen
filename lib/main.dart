@@ -1,17 +1,9 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:telephony/telephony.dart';
-import 'package:permission_handler/permission_handler.dart';
 import 'package:notification_listener_service/notification_listener_service.dart';
 
-@pragma('vm:entry-point')
-void backgroundMessageHandler(SmsMessage message) async {
-  parseAndSaveTransaction(message.body ?? '', message.address ?? 'SMS', 'SMS');
-}
-
 void parseAndSaveTransaction(String body, String sender, String source) async {
-  // 1. فلتر الأمان: تجاهل الرسائل المؤقتة وأكواد التحقق (OTP)
   final String lowerBody = body.toLowerCase();
   final List<String> ignoreKeywords = [
     'otp',
@@ -26,11 +18,10 @@ void parseAndSaveTransaction(String body, String sender, String source) async {
 
   for (final word in ignoreKeywords) {
     if (lowerBody.contains(word)) {
-      return; // تجاهل الرسالة تماماً
+      return;
     }
   }
 
-  // 2. استخراج الرصيد المتاح / المتبقي / الحالي
   double? availableBalance;
   final RegExp balanceRegex = RegExp(
     r'(?:الرصيد المتاح|رصيد حسابك.*?الحالي|رصيد محفظتك الحالي|رصيدك الحالي|المتاح|current.*?balance is)\s*:?[\s]*(?:EGP|جم|ج\.م|جنيه|جنية|LE|L\.E)?\s*([\d,]+(?:\.\d{1,2})?)\s*(?:EGP|جم|ج\.م|جنيه|جنية|LE|L\.E)?',
@@ -48,31 +39,23 @@ void parseAndSaveTransaction(String body, String sender, String source) async {
     await prefs.setDouble('last_known_balance', availableBalance);
   }
 
-  // 3. استثناء جزء الرصيد لمنع التداخل مع مبلغ العملية
   String textForTx = body;
   if (balanceMatch != null) {
     textForTx = body.substring(0, balanceMatch.start);
   }
 
-  // 4. استخراج مبلغ العملية الفعلية
   final RegExp txRegex = RegExp(
     r'(?:مبلغ|بمبلغ|خصم|سحب|تحويل|transferred|استلام)?\s*(?:EGP|جم|ج\.م|جنيه|جنية|LE|L\.E)?\s*([\d,]+(?:\.\d{1,2})?)\s*(?:EGP|جم|ج\.م|جنيه|جنية|LE|L\.E)',
     caseSensitive: false,
   );
 
   final txMatch = txRegex.firstMatch(textForTx);
-
-  // إذا كانت الرسالة مجرد استعلام عن الرصيد بدون معاملة شراء أو تحويل
-  if (txMatch == null) {
-    return;
-  }
+  if (txMatch == null) return;
 
   String cleanAmount = (txMatch.group(1) ?? '0').replaceAll(',', '');
   double amount = double.tryParse(cleanAmount) ?? 0.0;
-
   if (amount <= 0) return;
 
-  // 5. تحديد نوع المعاملة (إيداع أم خصم)
   String type = 'خصم';
   final List<String> depositKeywords = [
     'إيداع',
@@ -92,7 +75,6 @@ void parseAndSaveTransaction(String body, String sender, String source) async {
     }
   }
 
-  // 6. حفظ المعاملة
   List<String> list = prefs.getStringList('transactions') ?? [];
   Map<String, dynamic> tx = {
     'amount': amount,
@@ -142,7 +124,6 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  final Telephony telephony = Telephony.instance;
   List<Map<String, dynamic>> transactions = [];
   double currentBalance = 0.0;
 
@@ -154,17 +135,6 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> initListeners() async {
-    final smsStatus = await Permission.sms.request();
-    if (smsStatus.isGranted) {
-      telephony.listenIncomingSms(
-        onNewMessage: (SmsMessage message) {
-          parseAndSaveTransaction(message.body ?? '', message.address ?? 'SMS', 'SMS');
-          loadData();
-        },
-        onBackgroundMessage: backgroundMessageHandler,
-      );
-    }
-
     bool isNotificationGranted = await NotificationListenerService.isPermissionGranted();
     if (!isNotificationGranted) {
       await NotificationListenerService.requestPermission();

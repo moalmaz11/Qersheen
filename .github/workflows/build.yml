@@ -32,17 +32,16 @@ jobs:
 
       - name: Add Permissions to AndroidManifest
         run: |
-          sed -i '/<application/i \    <uses-permission android:name="android.permission.RECEIVE_SMS"/>\n    <uses-permission android:name="android.permission.READ_SMS"/>\n    <uses-permission android:name="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"/>' android/app/src/main/AndroidManifest.xml
+          sed -i '/<application/i \    <uses-permission android:name="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"/>' android/app/src/main/AndroidManifest.xml
 
       - name: Install dependencies
         run: flutter pub get
 
       - name: Fix plugins namespaces for AGP 8+
         run: |
-          for dir in /home/runner/.pub-cache/hosted/pub.dev/telephony-* /home/runner/.pub-cache/hosted/pub.dev/notification_listener_service-*; do
+          for dir in /home/runner/.pub-cache/hosted/pub.dev/notification_listener_service-*; do
             if [ -d "$dir/android" ]; then
-              pkg=$(basename "$dir" | cut -d'-' -f1)
-              sed -i "/android {/a \    namespace \"com.plugin.$pkg\"" "$dir/android/build.gradle" 2>/dev/null || true
+              sed -i '/android {/a \    namespace "com.cachet.notification_listener_service"' "$dir/android/build.gradle" 2>/dev/null || true
             fi
           done
 
