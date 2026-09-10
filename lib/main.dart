@@ -5,6 +5,7 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:flutter_sms_inbox/flutter_sms_inbox.dart';
 import 'package:notification_listener_service/notification_listener_service.dart';
+import 'institutions_data.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -12,134 +13,6 @@ void main() async {
   runApp(QersheenApp(prefs: prefs));
 }
 
-enum EntityType { bank, wallet }
-enum PaymentNetwork { visa, mastercard, meeza, walletInternal }
-
-class BankEntity {
-  final String id, name, type, acronym;
-  final EntityType entityType;
-  final PaymentNetwork network;
-  final List<String> exactSenders;
-  final List<Color> gradientColors;
-  final Color textColor;
-  final String cardTypeBadge;
-  final String logoPath;
-
-  const BankEntity({
-    required this.id,
-    required this.name,
-    required this.type,
-    required this.acronym,
-    required this.entityType,
-    required this.network,
-    required this.exactSenders,
-    required this.gradientColors,
-    required this.textColor,
-    required this.cardTypeBadge,
-    required this.logoPath,
-  });
-
-  Widget buildBrandLogo({double height = 28}) {
-    return Image.asset(
-      'assets/logos/$logoPath',
-      height: height,
-      fit: BoxFit.contain,
-      errorBuilder: (_, __, ___) => Text(
-        acronym,
-        style: TextStyle(color: textColor, fontWeight: FontWeight.w900, fontSize: 16),
-      ),
-    );
-  }
-}
-
-class EgyptInstitutions {
-  static const List<BankEntity> all = [
-    BankEntity(
-      id: 'nbe', name: 'البنك الأهلي المصري', type: 'National Bank of Egypt', acronym: 'NBE',
-      entityType: EntityType.bank, network: PaymentNetwork.mastercard, exactSenders: ['nbe', 'ahli'],
-      gradientColors: [Color(0xFF003822), Color(0xFF005A36), Color(0xFF002416)],
-      textColor: Colors.white, cardTypeBadge: 'PLATINUM DEBIT', logoPath: 'nbe.png',
-    ),
-    BankEntity(
-      id: 'misr', name: 'بنك مصر', type: 'BANQUE MISR', acronym: 'BM',
-      entityType: EntityType.bank, network: PaymentNetwork.meeza, exactSenders: ['banquemisr', 'bm'],
-      gradientColors: [Color(0xFF7A1518), Color(0xFF9E1F23), Color(0xFF4D0A0C)],
-      textColor: Colors.white, cardTypeBadge: 'TITANIUM MEEZA', logoPath: 'misr.png',
-    ),
-    BankEntity(
-      id: 'cib', name: 'البنك التجاري الدولي', type: 'Commercial International Bank', acronym: 'CIB',
-      entityType: EntityType.bank, network: PaymentNetwork.visa, exactSenders: ['cib', 'cibeg'],
-      gradientColors: [Color(0xFF0B1F38), Color(0xFF133863), Color(0xFF071424)],
-      textColor: Colors.white, cardTypeBadge: 'SIGNATURE VISA', logoPath: 'cib.png',
-    ),
-    BankEntity(
-      id: 'voda', name: 'فودافون كاش', type: 'Vodafone Cash Wallet', acronym: 'VF-CASH',
-      entityType: EntityType.wallet, network: PaymentNetwork.walletInternal, exactSenders: ['vf-cash', 'vfcash', 'vodafone'],
-      gradientColors: [Color(0xFF3B0000), Color(0xFF800000), Color(0xFF1F0000)],
-      textColor: Colors.white, cardTypeBadge: 'SMART E-WALLET', logoPath: 'voda.png',
-    ),
-    BankEntity(
-      id: 'instapay', name: 'إنستاباي مصر', type: 'InstaPay National Network', acronym: 'INSTAPAY',
-      entityType: EntityType.wallet, network: PaymentNetwork.walletInternal, exactSenders: ['instapay', 'ebc'],
-      gradientColors: [Color(0xFF240046), Color(0xFF3C096C), Color(0xFF10002B)],
-      textColor: Colors.white, cardTypeBadge: 'INSTANT TRANSFER', logoPath: 'instapay.png',
-    ),
-    BankEntity(
-      id: 'orange', name: 'أورنج كاش', type: 'Orange Cash Wallet', acronym: 'ORANGE',
-      entityType: EntityType.wallet, network: PaymentNetwork.walletInternal, exactSenders: ['orangecash', 'orange'],
-      gradientColors: [Color(0xFF331600), Color(0xFF6B2D00), Color(0xFF1C0C00)],
-      textColor: Colors.white, cardTypeBadge: 'ORANGE WALLET', logoPath: 'orange.png',
-    ),
-    BankEntity(
-      id: 'etisalat', name: 'إي آند كاش', type: 'e& Cash Wallet', acronym: 'e& CASH',
-      entityType: EntityType.wallet, network: PaymentNetwork.walletInternal, exactSenders: ['etisalatcash', 'e&cash'],
-      gradientColors: [Color(0xFF1A2E05), Color(0xFF30520A), Color(0xFF0F1A03)],
-      textColor: Colors.white, cardTypeBadge: 'e& DIGITAL CASH', logoPath: 'etisalat.png',
-    ),
-    BankEntity(
-      id: 'we', name: 'وي باي (WE Pay)', type: 'WE Pay Egypt', acronym: 'WE PAY',
-      entityType: EntityType.wallet, network: PaymentNetwork.walletInternal, exactSenders: ['wepay', 'telecomegypt'],
-      gradientColors: [Color(0xFF280C4D), Color(0xFF441880), Color(0xFF16062B)],
-      textColor: Colors.white, cardTypeBadge: 'WE PAY WALLET', logoPath: 'we.png',
-    ),
-    BankEntity(
-      id: 'fawry', name: 'فوري باي', type: 'Fawry Pay Digital Wallet', acronym: 'FAWRY',
-      entityType: EntityType.wallet, network: PaymentNetwork.walletInternal, exactSenders: ['fawry', 'myfawry'],
-      gradientColors: [Color(0xFF3D2900), Color(0xFF6E4B00), Color(0xFF211700)],
-      textColor: Colors.white, cardTypeBadge: 'YELLOW WALLET', logoPath: 'fawry.png',
-    ),
-    BankEntity(
-      id: 'qnb', name: 'بنك QNB الأهلي', type: 'Qatar National Bank', acronym: 'QNB',
-      entityType: EntityType.bank, network: PaymentNetwork.mastercard, exactSenders: ['qnb', 'qnbaa'],
-      gradientColors: [Color(0xFF260017), Color(0xFF4D002E), Color(0xFF14000C)],
-      textColor: Colors.white, cardTypeBadge: 'WORLD MASTERCARD', logoPath: 'qnb.png',
-    ),
-    BankEntity(
-      id: 'alex', name: 'بنك الإسكندرية', type: 'AlexBank Intesa Sanpaolo', acronym: 'ALEX',
-      entityType: EntityType.bank, network: PaymentNetwork.visa, exactSenders: ['alexbank'],
-      gradientColors: [Color(0xFF002B20), Color(0xFF004D39), Color(0xFF001711)],
-      textColor: Colors.white, cardTypeBadge: 'GOLD VISA', logoPath: 'alex.png',
-    ),
-    BankEntity(
-      id: 'bdc', name: 'بنك القاهرة', type: 'Banque Du Caire', acronym: 'BDC',
-      entityType: EntityType.bank, network: PaymentNetwork.mastercard, exactSenders: ['bdc', 'banqueducaire'],
-      gradientColors: [Color(0xFF3B1506), Color(0xFF6B290E), Color(0xFF1F0B03)],
-      textColor: Colors.white, cardTypeBadge: 'TITANIUM DEBIT', logoPath: 'bdc.png',
-    ),
-  ];
-
-  static BankEntity? matchSender(String sender) {
-    final clean = sender.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
-    for (var bank in all) {
-      for (var exact in bank.exactSenders) {
-        if (clean == exact || clean.contains(exact)) return bank;
-      }
-    }
-    return null;
-  }
-}
-
-// ================= إدارة البيانات والمزامنة الزمنية =================
 class AppData extends ChangeNotifier {
   final SharedPreferences prefs;
   bool isDarkMode;
@@ -160,7 +33,7 @@ class AppData extends ChangeNotifier {
   }
 
   void _loadCards() {
-    final String? cardsJson = prefs.getString('cardsData_v12');
+    final String? cardsJson = prefs.getString('cardsData_v14');
     if (cardsJson != null && cardsJson.isNotEmpty) {
       final List<dynamic> decoded = jsonDecode(cardsJson);
       userCards = decoded.map((e) => UserCardModel.fromJson(e)).toList();
@@ -169,13 +42,15 @@ class AppData extends ChangeNotifier {
 
   void saveCards() {
     final String encoded = jsonEncode(userCards.map((c) => c.toJson()).toList());
-    prefs.setString('cardsData_v12', encoded);
+    prefs.setString('cardsData_v14', encoded);
     notifyListeners();
   }
 
   void addNewCard(BankEntity entity, {String? customId}) {
     if (userCards.any((c) => c.bankId == entity.id)) return;
-    String idStr = entity.entityType == EntityType.wallet ? (customId ?? '010XXXXXXXX') : (customId ?? '•••• ${(1000 + (DateTime.now().microsecond % 9000))}');
+    String idStr = entity.entityType == EntityType.wallet 
+        ? (customId ?? '010XXXXXXXX') 
+        : (customId ?? '•••• ${(1000 + (DateTime.now().microsecond % 9000))}');
 
     userCards.insert(0, UserCardModel(
       id: '${entity.id}_${DateTime.now().millisecondsSinceEpoch}',
@@ -212,7 +87,6 @@ class AppData extends ChangeNotifier {
       if (!status.isGranted) return -1;
 
       final messages = await SmsQuery().querySms(kinds: [SmsQueryKind.inbox]);
-      // ترتيب زمني تصاعدي دقيق: الأقدم أولاً حتى تصل إلى رسالة اليوم
       messages.sort((a, b) => (a.date ?? DateTime.now()).compareTo(b.date ?? DateTime.now()));
 
       for (var msg in messages) {
@@ -229,10 +103,9 @@ class AppData extends ChangeNotifier {
   void _processMessage(BankEntity bank, String rawText, DateTime timestamp) {
     final text = rawText.replaceAll('\n', ' ').trim();
 
-    // 1. تحديد المعرف
     String? phone;
     if (bank.entityType == EntityType.wallet) {
-      final p = RegExp(r'(?:محفظتك|لرقم)?\s*(01[0125][0-9]{8})').firstMatch(text);
+      final p = RegExp(r'(?:محفظتك|لرقم|على رقم)?\s*(01[0125][0-9]{8})').firstMatch(text);
       if (p != null) phone = p.group(1);
     }
     String? acc;
@@ -254,7 +127,6 @@ class AppData extends ChangeNotifier {
       saveCards();
     }
 
-    // 2. تحديث الرصيد الحقيقي
     final balMatch = RegExp(
       r'(?:رصيد(?:ك| حسابك)? (?:الحالي|المتاح)|رصيد محفظتك الحالي|current .*?balance is|balance is)\s*[:=]?\s*(\d+(?:\.\d{1,2})?)',
       caseSensitive: false,
@@ -272,7 +144,6 @@ class AppData extends ChangeNotifier {
         (text.startsWith('رصيد حسابك') && !text.contains('تم دفع') && !text.contains('تم تحويل') && !text.contains('تم استلام'));
     if (isInquiry) return;
 
-    // 3. تحليل المعاملة
     String title = 'معاملة مالية';
     String? sub;
     bool isIncome = false;
@@ -350,7 +221,6 @@ class TransactionItem {
   );
 }
 
-// ================= واجهات العرض (Apple Pay UI) =================
 class QersheenApp extends StatelessWidget {
   final SharedPreferences prefs;
   const QersheenApp({super.key, required this.prefs});
@@ -390,19 +260,19 @@ class _AppleWalletScreenState extends State<AppleWalletScreen> {
       backgroundColor: widget.appData.isDarkMode ? const Color(0xFF1C1C1E) : Colors.white,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
       builder: (ctx) => DraggableScrollableSheet(
-        initialChildSize: 0.8,
+        initialChildSize: 0.85,
         maxChildSize: 0.95,
         expand: false,
         builder: (_, sc) => Column(
           children: [
-            Container(margin: const EdgeInsets.all(12), width: 42, height: 4.5, decoration: BoxDecoration(color: Colors.grey.withValues(alpha: 0.4), borderRadius: BorderRadius.circular(3))),
+            Container(margin: const EdgeInsets.all(12), width: 44, height: 4.5, decoration: BoxDecoration(color: Colors.grey.withOpacity(0.4), borderRadius: BorderRadius.circular(3))),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   const Text('إضافة بطاقة إلى المحفظة', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                  Text('${EgyptInstitutions.all.length} بطاقة متاحة', style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                  Text('${EgyptInstitutions.all.length} مؤسسة مصرية', style: const TextStyle(color: Colors.grey, fontSize: 12)),
                 ],
               ),
             ),
@@ -416,10 +286,10 @@ class _AppleWalletScreenState extends State<AppleWalletScreen> {
                   final exists = widget.appData.userCards.any((c) => c.bankId == entity.id);
                   return ListTile(
                     leading: Container(
-                      width: 50, height: 32,
-                      padding: const EdgeInsets.all(4),
-                      decoration: BoxDecoration(color: Colors.white10, borderRadius: BorderRadius.circular(6), border: Border.all(color: Colors.white12)),
-                      child: entity.buildBrandLogo(),
+                      width: 52, height: 36,
+                      padding: const EdgeInsets.all(3),
+                      decoration: BoxDecoration(color: Colors.white10, borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.white12)),
+                      child: entity.buildBrandLogo(height: 28),
                     ),
                     title: Text(entity.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
                     subtitle: Text(entity.type, style: const TextStyle(fontSize: 11)),
@@ -457,9 +327,9 @@ class _AppleWalletScreenState extends State<AppleWalletScreen> {
                     children: [
                       IconButton(
                         icon: const Icon(Icons.sync_rounded, color: Colors.blueAccent, size: 28),
-                        tooltip: 'مزامنة دقيقة مرتبة زمنياً',
+                        tooltip: 'مزامنة دقيقة',
                         onPressed: () async {
-                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('مزامنة الرسائل بالترتيب الزمني وتحديث الأرصدة...')));
+                          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('مزامنة مرتبة زمنياً وتحديث للأرصدة...')));
                           await widget.appData.autoDetectChronological();
                           if (context.mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('تمت مزامنة الرسائل بدقة')));
@@ -481,14 +351,14 @@ class _AppleWalletScreenState extends State<AppleWalletScreen> {
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Icon(Icons.credit_card_rounded, size: 70, color: Colors.grey.withValues(alpha: 0.3)),
+                          Icon(Icons.credit_card_rounded, size: 70, color: Colors.grey.withOpacity(0.3)),
                           const SizedBox(height: 14),
-                          const Text('اضغط على علامة التزامن لمسح رسائل البنوك بالترتيب الزمني', style: TextStyle(color: Colors.grey)),
+                          const Text('اضغط على علامة التزامن لمسح رسائل البنوك بالترتيب', style: TextStyle(color: Colors.grey)),
                           const SizedBox(height: 14),
                           ElevatedButton.icon(
                             style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF10B981), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20))),
                             icon: const Icon(Icons.add, color: Colors.white),
-                            label: const Text('إضافة بطاقة الآن', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                            label: const Text('إضافة بطاقة يدوياً', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
                             onPressed: _openAddSheet,
                           )
                         ],
@@ -553,7 +423,6 @@ class _AppleWalletScreenState extends State<AppleWalletScreen> {
     );
   }
 
-  // بطاقة واقعية مطابقة لمواصفات Apple Pay
   Widget _buildRealAppleCard(UserCardModel card) {
     final bank = card.bank;
     final isWallet = bank.entityType == EntityType.wallet;
@@ -562,27 +431,20 @@ class _AppleWalletScreenState extends State<AppleWalletScreen> {
       height: 220,
       padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 20),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: bank.gradientColors,
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
+        gradient: LinearGradient(colors: bank.gradientColors, begin: Alignment.topLeft, end: Alignment.bottomRight),
         borderRadius: BorderRadius.circular(20),
-        boxShadow: const [
-          BoxShadow(color: Colors.black54, blurRadius: 20, offset: Offset(0, 10)),
-        ],
-        border: Border.all(color: Colors.white.withValues(alpha: 0.16), width: 1.2),
+        boxShadow: const [BoxShadow(color: Colors.black54, blurRadius: 20, offset: Offset(0, 10))],
+        border: Border.all(color: Colors.white.withOpacity(0.16), width: 1.2),
       ),
       child: Stack(
         children: [
-          // لمعة وانعكاس زجاجي ناعم (Specular Highlight)
           Positioned(
             top: -40, right: -40,
             child: Container(
               width: 140, height: 140,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                gradient: RadialGradient(colors: [Colors.white.withValues(alpha: 0.12), Colors.transparent]),
+                gradient: RadialGradient(colors: [Colors.white.withOpacity(0.12), Colors.transparent]),
               ),
             ),
           ),
@@ -590,19 +452,17 @@ class _AppleWalletScreenState extends State<AppleWalletScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              // الهيدر: شارة نوع الكارت + الشعار الأصلي للبنك
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
                     bank.cardTypeBadge,
-                    style: TextStyle(color: bank.textColor.withValues(alpha: 0.75), fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 1.5),
+                    style: TextStyle(color: bank.textColor.withOpacity(0.75), fontSize: 11, fontWeight: FontWeight.w700, letterSpacing: 1.5),
                   ),
                   bank.buildBrandLogo(height: 32),
                 ],
               ),
-              // المنتصف: شريحة الـ Chip الأصلية + علامة الواي فاي + الرصيد
               Row(
                 children: [
                   if (!isWallet) ...[
@@ -621,7 +481,7 @@ class _AppleWalletScreenState extends State<AppleWalletScreen> {
                       ),
                     ),
                     const SizedBox(width: 12),
-                    Transform.rotate(angle: 1.5708, child: Icon(Icons.wifi, size: 22, color: bank.textColor.withValues(alpha: 0.7))),
+                    Transform.rotate(angle: 1.5708, child: Icon(Icons.wifi, size: 22, color: bank.textColor.withOpacity(0.7))),
                   ] else ...[
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
@@ -639,7 +499,7 @@ class _AppleWalletScreenState extends State<AppleWalletScreen> {
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
-                      Text('الرصيد الفعلي المتاح', style: TextStyle(color: bank.textColor.withValues(alpha: 0.7), fontSize: 10)),
+                      Text('الرصيد الفعلي المتاح', style: TextStyle(color: bank.textColor.withOpacity(0.7), fontSize: 10)),
                       Text(
                         '${card.balance.toStringAsFixed(2)} ج.م',
                         style: TextStyle(color: bank.textColor, fontSize: 24, fontWeight: FontWeight.w900, letterSpacing: -0.5),
@@ -648,7 +508,6 @@ class _AppleWalletScreenState extends State<AppleWalletScreen> {
                   ),
                 ],
               ),
-              // الفوتر: رقم الحساب/المحفظة + شعار شبكة الدفع (Meeza / Visa / Mastercard)
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -674,7 +533,7 @@ class _AppleWalletScreenState extends State<AppleWalletScreen> {
         return Row(
           children: [
             Container(width: 18, height: 18, decoration: const BoxDecoration(color: Color(0xFFEB001B), shape: BoxShape.circle)),
-            Transform.translate(offset: const Offset(-6, 0), child: Container(width: 18, height: 18, decoration: BoxDecoration(color: const Color(0xFFF79E1B).withValues(alpha: 0.85), shape: BoxShape.circle))),
+            Transform.translate(offset: const Offset(-6, 0), child: Container(width: 18, height: 18, decoration: BoxDecoration(color: const Color(0xFFF79E1B).withOpacity(0.85), shape: BoxShape.circle))),
           ],
         );
       case PaymentNetwork.meeza:
@@ -690,10 +549,7 @@ class _AppleWalletScreenState extends State<AppleWalletScreen> {
 
   Widget _buildTransactions(UserCardModel card, bool isDark) {
     if (card.transactions.isEmpty) {
-      return const Padding(
-        padding: EdgeInsets.all(20),
-        child: Text('لا توجد معاملات مسجلة على هذا الحساب حتى الآن', style: TextStyle(color: Colors.grey)),
-      );
+      return const Padding(padding: EdgeInsets.all(20), child: Text('لا توجد معاملات مسجلة على هذا الحساب بعد', style: TextStyle(color: Colors.grey)));
     }
     return ListView.builder(
       shrinkWrap: true,
