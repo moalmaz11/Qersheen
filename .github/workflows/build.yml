@@ -30,9 +30,10 @@ jobs:
             flutter create --org com.qersheen --platforms android .
           fi
 
-      - name: Add Permissions to AndroidManifest
+      - name: Add Permissions and Service to AndroidManifest
         run: |
           sed -i '/<application/i \    <uses-permission android:name="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"/>' android/app/src/main/AndroidManifest.xml
+          awk '/<\/application>/{print "        <service android:name=\"notification.listener.service.NotificationListener\" android:permission=\"android.permission.BIND_NOTIFICATION_LISTENER_SERVICE\" android:exported=\"true\"><intent-filter><action android:name=\"android.service.notification.NotificationListenerService\" /></intent-filter></service>"}1' android/app/src/main/AndroidManifest.xml > tmp.xml && mv tmp.xml android/app/src/main/AndroidManifest.xml
 
       - name: Install dependencies
         run: flutter pub get
