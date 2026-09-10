@@ -1,5 +1,5 @@
 name: qersheen
-description: A smart bank and wallet SMS tracker app.
+description: "Qersheen - Egyptian Finance & Wallet Manager"
 publish_to: 'none'
 version: 1.0.0+1
 
@@ -7,34 +7,21 @@ environment:
   sdk: '>=3.0.0 <4.0.0'
 
 dependencies:
-  fl_chart: ^1.2.0
   flutter:
-  assets:
-    - assets/models/
-    - assets/logos/
     sdk: flutter
-  flutter_sms_inbox: ^1.0.5
-  intl: ^0.20.3
-  notification_listener_service: ^1.0.0
-  permission_handler: ^13.0.2
-  shared_preferences: ^2.5.5
+  shared_preferences: ^2.2.2
+  fl_chart: ^0.66.0
+  permission_handler: ^11.3.0
+  flutter_sms_inbox: ^1.0.3
+  notification_listener_service: ^0.3.0
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^3.0.0
-  flutter_launcher_icons: ^0.14.4
 
 flutter:
-  assets:
-    - assets/models/
-    - assets/logos/
   uses-material-design: true
-
-flutter_launcher_icons:
-  android: true
-  ios: true
-  image_path: "assets/icon/app_icon.png"
-  min_sdk_android: 21
-  adaptive_icon_background: "#070A11"
-  adaptive_icon_foreground: "assets/icon/app_icon.png"
+  assets:
+    - assets/logos/
+    - assets/models/
