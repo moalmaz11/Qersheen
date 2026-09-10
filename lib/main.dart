@@ -20,11 +20,10 @@ void main() async {
   runApp(QersheenApp(prefs: prefs));
 }
 
-// ================= نماذج الأقساط والميزانيات =================
 class InstallmentModel {
   final String id;
   String title;
-  String provider; // مثلا: فاليو، أمان، بنك مصر
+  String provider;
   double monthlyAmount;
   int totalMonths;
   int paidMonths;
@@ -106,7 +105,7 @@ class AppData extends ChangeNotifier {
       }
       final didAuth = await _auth.authenticate(
         localizedReason: 'يرجى تأكيد هويتك لفتح محفظة قرشين بأمان',
-        options: const AuthenticationOptions(stickyAuth: true, biometricOnly: false),
+        options: AuthenticationOptions(stickyAuth: true, biometricOnly: false),
       );
       isAuthenticated = didAuth;
       notifyListeners();
@@ -137,7 +136,6 @@ class AppData extends ChangeNotifier {
   }
 
   void _loadAll() {
-    // 1. البطاقات
     final String? cardsJson = prefs.getString('cardsData_v20');
     if (cardsJson != null && cardsJson.isNotEmpty) {
       final List<dynamic> decoded = jsonDecode(cardsJson);
@@ -152,14 +150,12 @@ class AppData extends ChangeNotifier {
       saveCards();
     }
 
-    // 2. الأقساط
     final String? instJson = prefs.getString('installments_v20');
     if (instJson != null && instJson.isNotEmpty) {
       final List<dynamic> decInst = jsonDecode(instJson);
       installments = decInst.map((e) => InstallmentModel.fromJson(e)).toList();
     }
 
-    // 3. ميزانيات التصنيفات
     final String? budJson = prefs.getString('catBudgets_v20');
     if (budJson != null && budJson.isNotEmpty) {
       final Map<String, dynamic> decBud = jsonDecode(budJson);
@@ -306,7 +302,6 @@ class AppData extends ChangeNotifier {
     return sum;
   }
 
-  // ================= تصدير كشف حساب PDF رسومي =================
   Future<void> exportPdfReport() async {
     final pdf = pw.Document();
     final font = await PdfGoogleFonts.cairoRegular();
@@ -773,7 +768,6 @@ class _MainLayoutScreenState extends State<MainLayoutScreen> {
   }
 }
 
-// ================= شاشة المحفظة الرئيسية =================
 class AppleWalletScreen extends StatefulWidget {
   final AppData appData;
   const AppleWalletScreen({super.key, required this.appData});
@@ -1096,7 +1090,6 @@ class _AppleWalletScreenState extends State<AppleWalletScreen> {
   }
 }
 
-// ================= شاشة الأقساط والـ BNPL =================
 class InstallmentsView extends StatelessWidget {
   final AppData appData;
   const InstallmentsView({super.key, required this.appData});
@@ -1218,7 +1211,6 @@ class InstallmentsView extends StatelessWidget {
   }
 }
 
-// ================= شاشة ميزانيات التصنيفات =================
 class CategoryBudgetsView extends StatelessWidget {
   final AppData appData;
   const CategoryBudgetsView({super.key, required this.appData});
@@ -1311,7 +1303,6 @@ class CategoryBudgetsView extends StatelessWidget {
   }
 }
 
-// ================= شاشة الإعدادات والتقارير والـ PDF =================
 class SettingsTabView extends StatelessWidget {
   final AppData appData;
   const SettingsTabView({super.key, required this.appData});
