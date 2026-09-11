@@ -1,24 +1,25 @@
 name: qersheen
-description: "Qersheen - Egyptian Finance & Wallet Manager"
+description: "A 100% Offline, Privacy-First Smart Wallet & Finance App"
 publish_to: 'none'
 version: 1.0.0+1
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
+  flutter: ">=3.10.0"
 
 dependencies:
   flutter:
     sdk: flutter
-  shared_preferences: ^2.2.2
-  fl_chart: ^1.2.0
-  permission_handler: ^11.3.0
-  flutter_sms_inbox: ^1.0.3
-  local_auth: ^3.0.2
+  flutter_localizations:
+    sdk: flutter
   intl: ^0.20.3
-  file_picker: ^12.3.0
-  share_plus: ^13.3.0
-  printing: ^5.15.0
-  pdf: ^3.13.0
+  shared_preferences: ^2.2.2
+  local_auth: ^2.1.8
+  permission_handler: ^11.3.0
+  pdf: ^3.10.8
+  printing: ^5.12.0
+  share_plus: ^9.0.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -27,5 +28,4 @@ dev_dependencies:
 flutter:
   uses-material-design: true
   assets:
-    - assets/fonts/Cairo-Regular.ttf
-    - assets/logos/
+    - assets/fonts/
