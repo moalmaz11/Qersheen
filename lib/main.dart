@@ -357,9 +357,9 @@ class AppData extends ChangeNotifier {
 
   Future<void> importSecureBackup() async {
     try {
-      FilePickerResult? result = await FilePicker.platform.pickFiles(type: FileType.custom, allowedExtensions: ['bak']);
-      if (result != null && result.files.single.path != null) {
-        final file = File(result.files.single.path!);
+      final result = await FilePicker.pickFiles(type: FileType.custom, allowedExtensions: ['bak']);
+      if (result != null && result.single.path != null) {
+        final file = File(result.single.path!);
         final encrypted = await file.readAsString();
         final Map<String, dynamic> data = jsonDecode(utf8.decode(base64Decode(encrypted)));
         if (data.containsKey('cards') && data['cards'] != null) prefs.setString('cardsData_v36', data['cards']);
