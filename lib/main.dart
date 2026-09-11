@@ -1,3 +1,4 @@
+import 'dart:ui' as ui;
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
@@ -6,7 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:local_auth/local_auth.dart';
-import 'package:path_provider/path_provider.dart';
+
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:permission_handler/permission_handler.dart';
@@ -572,7 +573,7 @@ class _QersheenAppState extends State<QersheenApp> {
         fontFamily: isArabic ? 'Cairo' : null,
       ),
       home: Directionality(
-        textDirection: isArabic ? TextDirection.rtl : TextDirection.ltr,
+        textDirection: isArabic ? ui.TextDirection.rtl : ui.TextDirection.ltr,
         child: !_isAuthenticated && _isBiometricsEnabled
             ? AuthLockScreen(
                 language: _currentLanguage,
@@ -634,10 +635,6 @@ class _AuthLockScreenState extends State<AuthLockScreen> {
 
       final didAuth = await _auth.authenticate(
         localizedReason: AppStrings.get(widget.language, 'unlock_desc'),
-        options: const AuthenticationOptions(
-          stickyAuth: true,
-          biometricOnly: false,
-        ),
       );
 
       if (didAuth) {
