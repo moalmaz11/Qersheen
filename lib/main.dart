@@ -89,31 +89,33 @@ class AppData extends ChangeNotifier {
   }
 
   void _loadAll() {
-    final cJson = prefs.getString('cardsData_v30');
+    final cJson = prefs.getString('cardsData_v31');
     if (cJson != null && cJson.isNotEmpty) userCards = (jsonDecode(cJson) as List).map((e) => UserCardModel.fromJson(e)).toList();
     else { userCards = [UserCardModel(id: 'cash_wallet_main', bankId: 'cash', cardIdentifier: language == 'ar' ? 'محفظة النقود السائلة' : 'Cash Wallet', balance: 0.0, transactions: [])]; saveCards(); }
     
-    final iJson = prefs.getString('installments_v30');
+    final iJson = prefs.getString('installments_v31');
     if (iJson != null && iJson.isNotEmpty) installments = (jsonDecode(iJson) as List).map((e) => InstallmentModel.fromJson(e)).toList();
     
-    final bJson = prefs.getString('catBudgets_v30');
+    final bJson = prefs.getString('catBudgets_v31');
     if (bJson != null && bJson.isNotEmpty) categoryBudgets = (jsonDecode(bJson) as Map).map((k, v) => MapEntry(k.toString(), (v as num).toDouble()));
     else { categoryBudgets = {'فواتير ومشتريات': 3000.0, 'سوبرماركت': 4000.0, 'مواصلات': 1500.0, 'عام': 2000.0}; saveCategoryBudgets(); }
     
-    final fps = prefs.getStringList('processed_fps_v30');
+    final fps = prefs.getStringList('processed_fps_v31');
     if (fps != null) processedMessageFingerprints = fps.toSet();
   }
 
-  void saveCards() { prefs.setString('cardsData_v30', jsonEncode(userCards.map((c) => c.toJson()).toList())); prefs.setStringList('processed_fps_v30', processedMessageFingerprints.toList()); notifyListeners(); }
-  void saveInstallments() { prefs.setString('installments_v30', jsonEncode(installments.map((i) => i.toJson()).toList())); notifyListeners(); }
-  void saveCategoryBudgets() { prefs.setString('catBudgets_v30', jsonEncode(categoryBudgets)); notifyListeners(); }
+  void saveCards() { prefs.setString('cardsData_v31', jsonEncode(userCards.map((c) => c.toJson()).toList())); prefs.setStringList('processed_fps_v31', processedMessageFingerprints.toList()); notifyListeners(); }
+  void saveInstallments() { prefs.setString('installments_v31', jsonEncode(installments.map((i) => i.toJson()).toList())); notifyListeners(); }
+  void saveCategoryBudgets() { prefs.setString('catBudgets_v31', jsonEncode(categoryBudgets)); notifyListeners(); }
 
-  void addInstallment(String title, String provider, double monthly, int months) { installments.add(InstallmentModel(id: DateTime.now().millisecondsSinceEpoch.toString(), title: title, provider: provider, monthlyAmount: monthly, totalMonths: months, paidMonths: 0, dueDayOfMonth: 1)); saveInstallments(); }
+  void addInstallment(String title, String provider, double monthly, int months, int dueDay) { installments.add(InstallmentModel(id: DateTime.now().millisecondsSinceEpoch.toString(), title: title, provider: provider, monthlyAmount: monthly, totalMonths: months, paidMonths: 0, dueDayOfMonth: dueDay)); saveInstallments(); }
   void markInstallmentPaid(String id) { final inst = installments.firstWhere((i) => i.id == id); if (inst.paidMonths < inst.totalMonths) { inst.paidMonths++; saveInstallments(); } }
   void deleteInstallment(String id) { installments.removeWhere((i) => i.id == id); saveInstallments(); }
   void editCardName(String cardId, String newName) { userCards.firstWhere((c) => c.id == cardId).cardIdentifier = newName; saveCards(); }
   void deleteCard(String cardId) { if (cardId != 'cash_wallet_main') { userCards.removeWhere((c) => c.id == cardId); saveCards(); } }
+  
   void setCategoryBudget(String category, double limit) { categoryBudgets[category] = limit; saveCategoryBudgets(); }
+  void deleteCategoryBudget(String category) { categoryBudgets.remove(category); saveCategoryBudgets(); }
 
   void addManualCashTx({required String title, required double amount, required bool isIncome, required String category}) {
     final cashCard = userCards.firstWhere((c) => c.bankId == 'cash');
@@ -206,10 +208,10 @@ class AppData extends ChangeNotifier {
   Future<void> exportSecureBackup() async {
     try {
       final allData = {
-        'cards': prefs.getString('cardsData_v30'),
-        'installments': prefs.getString('installments_v30'),
-        'budgets': prefs.getString('catBudgets_v30'),
-        'fingerprints': prefs.getStringList('processed_fps_v30'),
+        'cards': prefs.getString('cardsData_v31'),
+        'installments': prefs.getString('installments_v31'),
+        'budgets': prefs.getString('catBudgets_v31'),
+        'fingerprints': prefs.getStringList('processed_fps_v31'),
       };
       final jsonStr = jsonEncode(allData);
       final bytes = utf8.encode(jsonStr);
@@ -231,10 +233,10 @@ class AppData extends ChangeNotifier {
         final jsonStr = utf8.decode(bytes);
         final Map<String, dynamic> data = jsonDecode(jsonStr);
 
-        if (data.containsKey('cards') && data['cards'] != null) prefs.setString('cardsData_v30', data['cards']);
-        if (data.containsKey('installments') && data['installments'] != null) prefs.setString('installments_v30', data['installments']);
-        if (data.containsKey('budgets') && data['budgets'] != null) prefs.setString('catBudgets_v30', data['budgets']);
-        if (data.containsKey('fingerprints') && data['fingerprints'] != null) prefs.setStringList('processed_fps_v30', List<String>.from(data['fingerprints']));
+        if (data.containsKey('cards') && data['cards'] != null) prefs.setString('cardsData_v31', data['cards']);
+        if (data.containsKey('installments') && data['installments'] != null) prefs.setString('installments_v31', data['installments']);
+        if (data.containsKey('budgets') && data['budgets'] != null) prefs.setString('catBudgets_v31', data['budgets']);
+        if (data.containsKey('fingerprints') && data['fingerprints'] != null) prefs.setStringList('processed_fps_v31', List<String>.from(data['fingerprints']));
         
         _loadAll();
       }
@@ -296,7 +298,33 @@ class MainLayoutScreen extends StatefulWidget {
 
 class _MainLayoutScreenState extends State<MainLayoutScreen> {
   int _tab = 0;
-  @override void initState() { super.initState(); WidgetsBinding.instance.addPostFrameCallback((_) { widget.appData.initializePermissions(); }); }
+  bool _hasCheckedReminders = false;
+
+  @override void initState() { 
+    super.initState(); 
+    WidgetsBinding.instance.addPostFrameCallback((_) { 
+      widget.appData.initializePermissions(); 
+      _checkInstallmentReminders();
+    }); 
+  }
+
+  void _checkInstallmentReminders() {
+    if (_hasCheckedReminders) return;
+    _hasCheckedReminders = true;
+    final today = DateTime.now().day;
+    final dueInstallments = widget.appData.installments.where((i) => i.paidMonths < i.totalMonths && (i.dueDayOfMonth - today).abs() <= 3).toList();
+    
+    if (dueInstallments.isNotEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('تنبيه: لديك ${dueInstallments.length} أقساط يقترب موعد سدادها قريباً!'),
+          backgroundColor: Colors.amber.shade800,
+          duration: const Duration(seconds: 5),
+        )
+      );
+    }
+  }
+
   @override Widget build(BuildContext context) {
     final pages = [AppleWalletScreen(appData: widget.appData), InstallmentsView(appData: widget.appData), CategoryBudgetsView(appData: widget.appData), SettingsTabView(appData: widget.appData)];
     final lang = widget.appData.language;
@@ -312,7 +340,9 @@ class _MainLayoutScreenState extends State<MainLayoutScreen> {
 
   void _showManualCashSheet(BuildContext ctx) {
     final titleCtrl = TextEditingController(); final amtCtrl = TextEditingController(); bool isExpense = true;
-    showModalBottomSheet(context: ctx, isScrollControlled: true, shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))), builder: (bCtx) => StatefulBuilder(builder: (c, setS) => Padding(padding: EdgeInsets.only(bottom: MediaQuery.of(bCtx).viewInsets.bottom, top: 20, left: 20, right: 20), child: Column(mainAxisSize: MainAxisSize.min, children: [Row(children: [ChoiceChip(label: const Text('مصروف (-)'), selected: isExpense, onSelected: (_) => setS(() => isExpense = true), selectedColor: Colors.redAccent.withOpacity(0.3)), const SizedBox(width: 8), ChoiceChip(label: const Text('دخل (+)'), selected: !isExpense, onSelected: (_) => setS(() => isExpense = false), selectedColor: Colors.green.withOpacity(0.3))]), const SizedBox(height: 12), TextField(controller: titleCtrl, decoration: const InputDecoration(labelText: 'الاسم', border: OutlineInputBorder())), const SizedBox(height: 12), TextField(controller: amtCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'المبلغ', border: OutlineInputBorder())), const SizedBox(height: 16), ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF10B981)), onPressed: () { final a = double.tryParse(amtCtrl.text); if (a != null && a > 0 && titleCtrl.text.isNotEmpty) { widget.appData.addManualCashTx(title: titleCtrl.text, amount: a, isIncome: !isExpense, category: 'عام'); Navigator.pop(bCtx); } }, child: const Text('حفظ', style: TextStyle(color: Colors.white))), const SizedBox(height: 20)]))));
+    String selectedCat = widget.appData.categoryBudgets.keys.first;
+
+    showModalBottomSheet(context: ctx, isScrollControlled: true, shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))), builder: (bCtx) => StatefulBuilder(builder: (c, setS) => Padding(padding: EdgeInsets.only(bottom: MediaQuery.of(bCtx).viewInsets.bottom, top: 20, left: 20, right: 20), child: Column(mainAxisSize: MainAxisSize.min, children: [Row(children: [ChoiceChip(label: const Text('مصروف (-)'), selected: isExpense, onSelected: (_) => setS(() => isExpense = true), selectedColor: Colors.redAccent.withOpacity(0.3)), const SizedBox(width: 8), ChoiceChip(label: const Text('دخل (+)'), selected: !isExpense, onSelected: (_) => setS(() => isExpense = false), selectedColor: Colors.green.withOpacity(0.3))]), const SizedBox(height: 12), TextField(controller: titleCtrl, decoration: const InputDecoration(labelText: 'الاسم', border: OutlineInputBorder())), const SizedBox(height: 12), TextField(controller: amtCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'المبلغ', border: OutlineInputBorder())), const SizedBox(height: 12), DropdownButtonFormField<String>(value: selectedCat, items: widget.appData.categoryBudgets.keys.map((k) => DropdownMenuItem(value: k, child: Text(k))).toList(), onChanged: (v) => setS(() => selectedCat = v!), decoration: const InputDecoration(labelText: 'التصنيف', border: OutlineInputBorder())), const SizedBox(height: 16), ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF10B981)), onPressed: () { final a = double.tryParse(amtCtrl.text); if (a != null && a > 0 && titleCtrl.text.isNotEmpty) { widget.appData.addManualCashTx(title: titleCtrl.text, amount: a, isIncome: !isExpense, category: selectedCat); Navigator.pop(bCtx); } }, child: const Text('حفظ', style: TextStyle(color: Colors.white))), const SizedBox(height: 20)]))));
   }
 }
 
@@ -415,15 +445,15 @@ class InstallmentsView extends StatefulWidget {
 
 class _InstallmentsViewState extends State<InstallmentsView> {
   void _showAddSheet() {
-    final titleCtrl = TextEditingController(); final provCtrl = TextEditingController(); final amtCtrl = TextEditingController(); final monthsCtrl = TextEditingController();
-    showModalBottomSheet(context: context, isScrollControlled: true, shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))), builder: (ctx) => Padding(padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom, top: 24, left: 24, right: 24), child: Column(mainAxisSize: MainAxisSize.min, children: [TextField(controller: titleCtrl, decoration: const InputDecoration(labelText: 'اسم السلعة', border: OutlineInputBorder())), const SizedBox(height: 12), TextField(controller: provCtrl, decoration: const InputDecoration(labelText: 'جهة التقسيط', border: OutlineInputBorder())), const SizedBox(height: 12), Row(children: [Expanded(child: TextField(controller: amtCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'القسط', border: OutlineInputBorder()))), const SizedBox(width: 12), Expanded(child: TextField(controller: monthsCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'الشهور', border: OutlineInputBorder())))]), const SizedBox(height: 20), ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF10B981)), onPressed: () { final amt = double.tryParse(amtCtrl.text); final m = int.tryParse(monthsCtrl.text); if (amt != null && m != null && titleCtrl.text.isNotEmpty) { widget.appData.addInstallment(titleCtrl.text, provCtrl.text.isEmpty ? 'جهة تقسيط' : provCtrl.text, amt, m); Navigator.pop(ctx); } }, child: const Text('حفظ القسط', style: TextStyle(color: Colors.white))), const SizedBox(height: 20)])));
+    final titleCtrl = TextEditingController(); final provCtrl = TextEditingController(); final amtCtrl = TextEditingController(); final monthsCtrl = TextEditingController(); final dueDayCtrl = TextEditingController();
+    showModalBottomSheet(context: context, isScrollControlled: true, shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))), builder: (ctx) => Padding(padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom, top: 24, left: 24, right: 24), child: Column(mainAxisSize: MainAxisSize.min, children: [TextField(controller: titleCtrl, decoration: const InputDecoration(labelText: 'اسم السلعة', border: OutlineInputBorder())), const SizedBox(height: 12), TextField(controller: provCtrl, decoration: const InputDecoration(labelText: 'جهة التقسيط', border: OutlineInputBorder())), const SizedBox(height: 12), Row(children: [Expanded(child: TextField(controller: amtCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'القسط', border: OutlineInputBorder()))), const SizedBox(width: 12), Expanded(child: TextField(controller: monthsCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'الشهور', border: OutlineInputBorder())))]), const SizedBox(height: 12), TextField(controller: dueDayCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'يوم الاستحقاق (مثال: 1 لـ يوم 1 في الشهر)', border: OutlineInputBorder())), const SizedBox(height: 20), ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF10B981)), onPressed: () { final amt = double.tryParse(amtCtrl.text); final m = int.tryParse(monthsCtrl.text); final d = int.tryParse(dueDayCtrl.text) ?? 1; if (amt != null && m != null && titleCtrl.text.isNotEmpty) { widget.appData.addInstallment(titleCtrl.text, provCtrl.text.isEmpty ? 'جهة تقسيط' : provCtrl.text, amt, m, d); Navigator.pop(ctx); } }, child: const Text('حفظ القسط', style: TextStyle(color: Colors.white))), const SizedBox(height: 20)])));
   }
   @override Widget build(BuildContext context) {
     return SafeArea(child: Column(children: [
       Padding(padding: const EdgeInsets.all(20), child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text(AppStrings.get(widget.appData.language, 'installments'), style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)), IconButton(icon: const Icon(Icons.add_circle_rounded, color: Color(0xFF10B981), size: 32), onPressed: _showAddSheet)])),
       Expanded(child: widget.appData.installments.isEmpty ? Center(child: Text(AppStrings.get(widget.appData.language, 'no_inst'), style: const TextStyle(color: Colors.grey))) : ListView.builder(padding: const EdgeInsets.symmetric(horizontal: 16), itemCount: widget.appData.installments.length, itemBuilder: (ctx, i) {
         final inst = widget.appData.installments[i]; final isDone = inst.paidMonths >= inst.totalMonths;
-        return Container(margin: const EdgeInsets.only(bottom: 16), padding: const EdgeInsets.all(20), decoration: BoxDecoration(color: widget.appData.isDarkMode ? const Color(0xFF1C1C1E) : Colors.white, borderRadius: BorderRadius.circular(20)), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(inst.title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)), Text('${inst.provider} • ${inst.monthlyAmount.toStringAsFixed(0)} ج.م / شهر', style: const TextStyle(color: Colors.grey, fontSize: 13))]), IconButton(icon: const Icon(Icons.delete_outline, color: Colors.redAccent), onPressed: () => widget.appData.deleteInstallment(inst.id))]), const SizedBox(height: 16), LinearProgressIndicator(value: inst.progress, minHeight: 8, backgroundColor: Colors.grey.withOpacity(0.2), valueColor: AlwaysStoppedAnimation(isDone ? Colors.green : const Color(0xFF10B981))), const SizedBox(height: 12), Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text('تم سداد: ${inst.paidMonths} / ${inst.totalMonths} شهر', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)), if (!isDone) ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF10B981)), onPressed: () => widget.appData.markInstallmentPaid(inst.id), child: const Text('دفع قسط', style: TextStyle(color: Colors.white, fontSize: 12))) else const Text('مكتمل', style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold, fontSize: 12))])]));
+        return Container(margin: const EdgeInsets.only(bottom: 16), padding: const EdgeInsets.all(20), decoration: BoxDecoration(color: widget.appData.isDarkMode ? const Color(0xFF1C1C1E) : Colors.white, borderRadius: BorderRadius.circular(20)), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(inst.title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)), Text('${inst.provider} • ${inst.monthlyAmount.toStringAsFixed(0)} ج.م / شهر (يوم ${inst.dueDayOfMonth})', style: const TextStyle(color: Colors.grey, fontSize: 13))]), IconButton(icon: const Icon(Icons.delete_outline, color: Colors.redAccent), onPressed: () => widget.appData.deleteInstallment(inst.id))]), const SizedBox(height: 16), LinearProgressIndicator(value: inst.progress, minHeight: 8, backgroundColor: Colors.grey.withOpacity(0.2), valueColor: AlwaysStoppedAnimation(isDone ? Colors.green : const Color(0xFF10B981))), const SizedBox(height: 12), Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text('تم سداد: ${inst.paidMonths} / ${inst.totalMonths} شهر', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)), if (!isDone) ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF10B981)), onPressed: () => widget.appData.markInstallmentPaid(inst.id), child: const Text('دفع قسط', style: TextStyle(color: Colors.white, fontSize: 12))) else const Text('مكتمل', style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold, fontSize: 12))])]));
       }))
     ]));
   }
@@ -432,54 +462,45 @@ class _InstallmentsViewState extends State<InstallmentsView> {
 class CategoryBudgetsView extends StatelessWidget {
   final AppData appData; const CategoryBudgetsView({super.key, required this.appData});
 
+  void _showAddCategorySheet(BuildContext context) {
+    final nameCtrl = TextEditingController(); final limitCtrl = TextEditingController();
+    showModalBottomSheet(context: context, isScrollControlled: true, shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))), builder: (ctx) => Padding(padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom, top: 24, left: 24, right: 24), child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [const Text('إضافة تصنيف جديد', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)), const SizedBox(height: 16), TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: 'اسم التصنيف', border: OutlineInputBorder())), const SizedBox(height: 16), TextField(controller: limitCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'الحد الأقصى للميزانية (ج.م)', border: OutlineInputBorder())), const SizedBox(height: 16), SizedBox(width: double.infinity, child: ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF10B981), padding: const EdgeInsets.all(14)), onPressed: () { final newLimit = double.tryParse(limitCtrl.text); if (newLimit != null && newLimit >= 0 && nameCtrl.text.isNotEmpty) { appData.setCategoryBudget(nameCtrl.text, newLimit); Navigator.pop(ctx); } }, child: const Text('حفظ التصنيف', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)))), const SizedBox(height: 20)])));
+  }
+
   void _showEditBudgetSheet(BuildContext context, String category, double currentLimit) {
     final ctrl = TextEditingController(text: currentLimit.toStringAsFixed(0));
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
-      builder: (ctx) => Padding(
-        padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom, top: 24, left: 24, right: 24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('تعديل ميزانية: $category', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 16),
-            TextField(controller: ctrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'الحد الأقصى الجديد (ج.م)', border: OutlineInputBorder())),
-            const SizedBox(height: 16),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF10B981), padding: const EdgeInsets.all(14)),
-                onPressed: () {
-                  final newLimit = double.tryParse(ctrl.text);
-                  if (newLimit != null && newLimit >= 0) {
-                    appData.setCategoryBudget(category, newLimit);
-                    Navigator.pop(ctx);
-                  }
-                },
-                child: const Text('حفظ التعديل', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-              ),
-            ),
-            const SizedBox(height: 20),
-          ],
-        ),
-      ),
-    );
+    showModalBottomSheet(context: context, isScrollControlled: true, shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))), builder: (ctx) => Padding(padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom, top: 24, left: 24, right: 24), child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [Text('تعديل ميزانية: $category', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)), const SizedBox(height: 16), TextField(controller: ctrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'الحد الأقصى الجديد (ج.م)', border: OutlineInputBorder())), const SizedBox(height: 16), SizedBox(width: double.infinity, child: ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF10B981), padding: const EdgeInsets.all(14)), onPressed: () { final newLimit = double.tryParse(ctrl.text); if (newLimit != null && newLimit >= 0) { appData.setCategoryBudget(category, newLimit); Navigator.pop(ctx); } }, child: const Text('حفظ التعديل', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)))), const SizedBox(height: 8), SizedBox(width: double.infinity, child: TextButton(onPressed: () { appData.deleteCategoryBudget(category); Navigator.pop(ctx); }, child: const Text('حذف هذا التصنيف', style: TextStyle(color: Colors.redAccent)))), const SizedBox(height: 20)])));
   }
 
   @override Widget build(BuildContext context) {
-    return SafeArea(child: Column(children: [
-      Padding(padding: const EdgeInsets.all(20), child: Align(alignment: Alignment.centerRight, child: Text(AppStrings.get(appData.language, 'budgets'), style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)))),
-      Expanded(child: ListView(padding: const EdgeInsets.symmetric(horizontal: 16), children: appData.categoryBudgets.entries.map((e) {
-        final spent = appData.getCategoryMonthlySpent(e.key); final limit = e.value; final pct = limit > 0 ? (spent / limit).clamp(0.0, 1.0) : 0.0; final isExceeded = spent > limit;
-        return GestureDetector(
-          onTap: () => _showEditBudgetSheet(context, e.key, limit),
-          child: Container(margin: const EdgeInsets.only(bottom: 16), padding: const EdgeInsets.all(20), decoration: BoxDecoration(color: appData.isDarkMode ? const Color(0xFF1C1C1E) : Colors.white, borderRadius: BorderRadius.circular(20), border: isExceeded ? Border.all(color: Colors.redAccent.withOpacity(0.5), width: 1.5) : null), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text(e.key, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)), Text('${(pct * 100).toStringAsFixed(0)}%', style: TextStyle(fontWeight: FontWeight.bold, color: isExceeded ? Colors.redAccent : const Color(0xFF10B981)))]), const SizedBox(height: 12), LinearProgressIndicator(value: pct, minHeight: 8, backgroundColor: Colors.grey.withOpacity(0.2), valueColor: AlwaysStoppedAnimation(isExceeded ? Colors.redAccent : const Color(0xFF10B981))), const SizedBox(height: 12), Text('الاستهلاك: ${spent.toStringAsFixed(0)} من أصل ${limit.toStringAsFixed(0)} ج.م', style: const TextStyle(fontSize: 12, color: Colors.grey))])),
-        );
-      }).toList()))
-    ]));
+    List<PieChartSectionData> chartSections = [];
+    final colors = [Colors.blue, Colors.redAccent, Colors.amber, Colors.green, Colors.purple, Colors.orange];
+    int colorIndex = 0;
+    
+    appData.categoryBudgets.forEach((key, value) {
+      final spent = appData.getCategoryMonthlySpent(key);
+      if (spent > 0) {
+        chartSections.add(PieChartSectionData(color: colors[colorIndex % colors.length], value: spent, title: key, radius: 50, titleStyle: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: Colors.white)));
+        colorIndex++;
+      }
+    });
+
+    return SafeArea(child: Scaffold(
+      floatingActionButton: FloatingActionButton.extended(backgroundColor: const Color(0xFF10B981), icon: const Icon(Icons.add, color: Colors.white), label: const Text('تصنيف جديد', style: TextStyle(color: Colors.white)), onPressed: () => _showAddCategorySheet(context)),
+      body: Column(children: [
+        Padding(padding: const EdgeInsets.all(20), child: Align(alignment: Alignment.centerRight, child: Text(AppStrings.get(appData.language, 'budgets'), style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)))),
+        if (chartSections.isNotEmpty) 
+          SizedBox(height: 180, child: PieChart(PieChartData(sections: chartSections, centerSpaceRadius: 40, sectionsSpace: 2))),
+        if (chartSections.isNotEmpty) const SizedBox(height: 20),
+        Expanded(child: ListView(padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10), children: appData.categoryBudgets.entries.map((e) {
+          final spent = appData.getCategoryMonthlySpent(e.key); final limit = e.value; final pct = limit > 0 ? (spent / limit).clamp(0.0, 1.0) : 0.0; final isExceeded = spent > limit;
+          return GestureDetector(
+            onTap: () => _showEditBudgetSheet(context, e.key, limit),
+            child: Container(margin: const EdgeInsets.only(bottom: 16), padding: const EdgeInsets.all(20), decoration: BoxDecoration(color: appData.isDarkMode ? const Color(0xFF1C1C1E) : Colors.white, borderRadius: BorderRadius.circular(20), border: isExceeded ? Border.all(color: Colors.redAccent.withOpacity(0.5), width: 1.5) : null), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text(e.key, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)), Text('${(pct * 100).toStringAsFixed(0)}%', style: TextStyle(fontWeight: FontWeight.bold, color: isExceeded ? Colors.redAccent : const Color(0xFF10B981)))]), const SizedBox(height: 12), LinearProgressIndicator(value: pct, minHeight: 8, backgroundColor: Colors.grey.withOpacity(0.2), valueColor: AlwaysStoppedAnimation(isExceeded ? Colors.redAccent : const Color(0xFF10B981))), const SizedBox(height: 12), Text('الاستهلاك: ${spent.toStringAsFixed(0)} من أصل ${limit.toStringAsFixed(0)} ج.م', style: const TextStyle(fontSize: 12, color: Colors.grey))])),
+          );
+        }).toList()))
+      ]),
+    ));
   }
 }
 
