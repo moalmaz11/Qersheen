@@ -1,3 +1,4 @@
+import "package:flutter/services.dart";
 import 'package:file_picker/file_picker.dart';
 import 'dart:convert';
 import 'dart:io';
@@ -309,8 +310,9 @@ class AppData extends ChangeNotifier {
 
   Future<void> exportPdfReport({String? cardId}) async {
     final pdf = pw.Document(); 
-    final fontRegular = await PdfGoogleFonts.cairoRegular();
-    final fontBold = await PdfGoogleFonts.cairoBold();
+    final fontData = await rootBundle.load('assets/fonts/Cairo-Regular.ttf');
+    final fontRegular = pw.Font.ttf(fontData);
+    final fontBold = fontRegular;
     double totalIn = 0.0, totalOut = 0.0;
     
     final cardsToExport = cardId == null ? userCards : userCards.where((c) => c.id == cardId).toList();
