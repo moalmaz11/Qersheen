@@ -98,21 +98,31 @@ class AppData extends ChangeNotifier {
   }
 
   void _loadAll() {
-    final cJson = prefs.getString('cardsData_v34') ?? prefs.getString('cardsData_v33');
+    final cJson = prefs.getString('cardsData_v34');
     if (cJson != null && cJson.isNotEmpty) userCards = (jsonDecode(cJson) as List).map((e) => UserCardModel.fromJson(e)).toList();
     else { userCards = [UserCardModel(id: 'cash_wallet_main', bankId: 'cash', cardIdentifier: language == 'ar' ? 'محفظة النقود السائلة' : 'Cash Wallet', balance: 0.0, transactions: [])]; saveCards(); }
     
-    final iJson = prefs.getString('installments_v34') ?? prefs.getString('installments_v33');
+    final iJson = prefs.getString('installments_v34');
     if (iJson != null && iJson.isNotEmpty) installments = (jsonDecode(iJson) as List).map((e) => InstallmentModel.fromJson(e)).toList();
 
     final sJson = prefs.getString('subscriptions_v34');
     if (sJson != null && sJson.isNotEmpty) subscriptions = (jsonDecode(sJson) as List).map((e) => SubscriptionModel.fromJson(e)).toList();
     
-    final bJson = prefs.getString('catBudgets_v34') ?? prefs.getString('catBudgets_v33');
-    if (bJson != null && bJson.isNotEmpty) categoryBudgets = (jsonDecode(bJson) as Map).map((k, v) => MapEntry(k.toString(), (v as num).toDouble()));
-    else { categoryBudgets = {'فواتير ومشتريات': 3000.0, 'سوبرماركت': 4000.0, 'مواصلات': 1500.0, 'عام': 2000.0}; saveCategoryBudgets(); }
+    final bJson = prefs.getString('catBudgets_v34');
+    if (bJson != null && bJson.isNotEmpty) { 
+      categoryBudgets = (jsonDecode(bJson) as Map).map((k, v) => MapEntry(k.toString(), (v as num).toDouble()));
+      // حقن التصنيفات الجديدة إذا لم تكن موجودة بأمان
+      final newDefaults = {'مطاعم وأكل': 2000.0, 'وقود': 1000.0, 'تسوق': 2000.0, 'تعليم': 1500.0, 'ترفيه': 1000.0};
+      bool changed = false;
+      newDefaults.forEach((k, v) { if (!categoryBudgets.containsKey(k)) { categoryBudgets[k] = v; changed = true; } });
+      if (changed) saveCategoryBudgets();
+    }
+    else { 
+      categoryBudgets = {'فواتير ومشتريات': 3000.0, 'سوبرماركت': 4000.0, 'مواصلات': 1500.0, 'مطاعم وأكل': 2000.0, 'وقود': 1000.0, 'تسوق': 2000.0, 'تعليم': 1500.0, 'ترفيه': 1000.0, 'عام': 2000.0}; 
+      saveCategoryBudgets(); 
+    }
     
-    final fps = prefs.getStringList('processed_fps_v34') ?? prefs.getStringList('processed_fps_v33');
+    final fps = prefs.getStringList('processed_fps_v34');
     if (fps != null) processedMessageFingerprints = fps.toSet();
   }
 
@@ -188,19 +198,30 @@ class AppData extends ChangeNotifier {
 
     String title = isIncome ? 'استلام من $extractedName' : 'دفع لـ $extractedName';
     
-    // التصنيف التلقائي الذكي للمتاجر
+    // التصنيف التلقائي المتقدم ليشمل كل المجالات الجديدة
     String category = isIncome ? 'تحويلات' : 'فواتير ومشتريات';
     final lowerName = extractedName.toLowerCase();
     if (!isIncome) {
-      if (RegExp(r'(uber|careem|indrive|ديدي|اوبر|كريم|مواصلات|قطار)').hasMatch(lowerName)) {
+      if (RegExp(r'(uber|careem|indrive|ديدي|اوبر|كريم|مواصلات|قطار|سويفل|swvl)').hasMatch(lowerName)) {
         category = 'مواصلات';
-        if (!categoryBudgets.containsKey('مواصلات')) setCategoryBudget('مواصلات', 1500.0);
-      } else if (RegExp(r'(carrefour|kazyon|spinneys|hyper|بيم|كارفور|كازيون|سوبرماركت|خير زمان)').hasMatch(lowerName)) {
+      } else if (RegExp(r'(carrefour|kazyon|spinneys|hyper|بيم|كارفور|كازيون|سوبرماركت|خير زمان|هايبر)').hasMatch(lowerName)) {
         category = 'سوبرماركت';
-        if (!categoryBudgets.containsKey('سوبرماركت')) setCategoryBudget('سوبرماركت', 4000.0);
-      } else if (RegExp(r'(vodafone|orange|etisalat|we|فودافون|اورانج|اتصالات|فاتورة|انترنت)').hasMatch(lowerName)) {
+      } else if (RegExp(r'(gas|fuel|station|بنزين|وقود|محطة|وطنية|chillout|chilout|mobil|shell|emarat|امارات)').hasMatch(lowerName)) {
+        category = 'وقود';
+      } else if (RegExp(r'(restaurant|food|kfc|mcdonalds|mac|مطعم|اكل|كشري|بيتزا|برجر|طلبات|talabat|elmenus|طعام|كافيه|cafe|coffee|starbucks)').hasMatch(lowerName)) {
+        category = 'مطاعم وأكل';
+      } else if (RegExp(r'(school|university|college|academy|مدرسة|جامعة|اكاديمية|كورس|تعليم|دراسة|course|مركز)').hasMatch(lowerName)) {
+        category = 'تعليم';
+      } else if (RegExp(r'(cinema|movie|netflix|spotify|سينما|ترفيه|نادي|اشتراك|العاب|games|play|playstation|بلايستيشن|شاهد|shahid)').hasMatch(lowerName)) {
+        category = 'ترفيه';
+      } else if (RegExp(r'(amazon|noon|jumia|zara|lc waikiki|hm|h&m|تسوق|ملابس|امازون|نون|جوميا|shein|lcwaikiki|defacto|nike|adidas|مول|mall)').hasMatch(lowerName)) {
+        category = 'تسوق';
+      } else if (RegExp(r'(vodafone|orange|etisalat|we|فودافون|اورانج|اتصالات|فاتورة|انترنت|كهرباء|مياه|غاز)').hasMatch(lowerName)) {
         category = 'فواتير ومشتريات';
       }
+      
+      // تأمين إضافة أي تصنيف جديد يكتشفه المحرك
+      if (!categoryBudgets.containsKey(category)) setCategoryBudget(category, 1500.0);
     }
 
     final amtMatch = RegExp(r'(\d+(?:\.\d{1,2})?)\s*(?:جنية|جنيه|EGP|LE)').firstMatch(text) ?? RegExp(r'(?:مبلغ|قيمة)\s*(\d+(?:\.\d{1,2})?)').firstMatch(text);
@@ -408,7 +429,6 @@ class _MainLayoutScreenState extends State<MainLayoutScreen> {
   }
 }
 
-// ---------------- شاشة التحليلات التاريخية المقارنة ----------------
 class HistoricalAnalyticsScreen extends StatelessWidget {
   final AppData appData;
   const HistoricalAnalyticsScreen({super.key, required this.appData});
@@ -416,8 +436,6 @@ class HistoricalAnalyticsScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isDark = appData.isDarkMode;
-    
-    // حساب المصروفات لآخر 6 شهور
     final now = DateTime.now();
     List<Map<String, dynamic>> monthlyData = [];
     double maxAmount = 0.0;
@@ -430,7 +448,7 @@ class HistoricalAnalyticsScreen extends StatelessWidget {
       double monthTotal = 0.0;
       for (var c in appData.userCards) {
         for (var tx in c.transactions) {
-          if (!tx.isIncome && tx.date.contains('/$monthStr') || tx.date.endsWith(monthStr)) {
+          if (!tx.isIncome && (tx.date.contains('/$monthStr') || tx.date.endsWith(monthStr))) {
             monthTotal += tx.amount;
           }
         }
@@ -561,7 +579,6 @@ class _AppleWalletScreenState extends State<AppleWalletScreen> {
   }
 }
 
-// ---------------- واجهة الالتزامات (الأقساط + الاشتراكات) ----------------
 class ObligationsView extends StatefulWidget {
   final AppData appData; const ObligationsView({super.key, required this.appData});
   @override State<ObligationsView> createState() => _ObligationsViewState();
@@ -587,7 +604,7 @@ class _ObligationsViewState extends State<ObligationsView> {
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween, 
           children: [
-            Text('الالتزامات', style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)), 
+            const Text('الالتزامات', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)), 
             IconButton(icon: const Icon(Icons.add_circle_rounded, color: Color(0xFF10B981), size: 32), onPressed: _showInstallments ? _showAddInstallmentSheet : _showAddSubscriptionSheet)
           ]
         )
@@ -631,7 +648,7 @@ class CategoryBudgetsView extends StatelessWidget {
 
   @override Widget build(BuildContext context) {
     List<PieChartSectionData> chartSections = [];
-    final colors = [Colors.blue, Colors.redAccent, Colors.amber, Colors.green, Colors.purple, Colors.orange];
+    final colors = [Colors.blue, Colors.redAccent, Colors.amber, Colors.green, Colors.purple, Colors.orange, Colors.teal, Colors.indigo];
     int colorIndex = 0;
     
     appData.categoryBudgets.forEach((key, value) {
