@@ -89,24 +89,24 @@ class AppData extends ChangeNotifier {
   }
 
   void _loadAll() {
-    final cJson = prefs.getString('cardsData_v31');
+    final cJson = prefs.getString('cardsData_v32');
     if (cJson != null && cJson.isNotEmpty) userCards = (jsonDecode(cJson) as List).map((e) => UserCardModel.fromJson(e)).toList();
     else { userCards = [UserCardModel(id: 'cash_wallet_main', bankId: 'cash', cardIdentifier: language == 'ar' ? 'محفظة النقود السائلة' : 'Cash Wallet', balance: 0.0, transactions: [])]; saveCards(); }
     
-    final iJson = prefs.getString('installments_v31');
+    final iJson = prefs.getString('installments_v32');
     if (iJson != null && iJson.isNotEmpty) installments = (jsonDecode(iJson) as List).map((e) => InstallmentModel.fromJson(e)).toList();
     
-    final bJson = prefs.getString('catBudgets_v31');
+    final bJson = prefs.getString('catBudgets_v32');
     if (bJson != null && bJson.isNotEmpty) categoryBudgets = (jsonDecode(bJson) as Map).map((k, v) => MapEntry(k.toString(), (v as num).toDouble()));
     else { categoryBudgets = {'فواتير ومشتريات': 3000.0, 'سوبرماركت': 4000.0, 'مواصلات': 1500.0, 'عام': 2000.0}; saveCategoryBudgets(); }
     
-    final fps = prefs.getStringList('processed_fps_v31');
+    final fps = prefs.getStringList('processed_fps_v32');
     if (fps != null) processedMessageFingerprints = fps.toSet();
   }
 
-  void saveCards() { prefs.setString('cardsData_v31', jsonEncode(userCards.map((c) => c.toJson()).toList())); prefs.setStringList('processed_fps_v31', processedMessageFingerprints.toList()); notifyListeners(); }
-  void saveInstallments() { prefs.setString('installments_v31', jsonEncode(installments.map((i) => i.toJson()).toList())); notifyListeners(); }
-  void saveCategoryBudgets() { prefs.setString('catBudgets_v31', jsonEncode(categoryBudgets)); notifyListeners(); }
+  void saveCards() { prefs.setString('cardsData_v32', jsonEncode(userCards.map((c) => c.toJson()).toList())); prefs.setStringList('processed_fps_v32', processedMessageFingerprints.toList()); notifyListeners(); }
+  void saveInstallments() { prefs.setString('installments_v32', jsonEncode(installments.map((i) => i.toJson()).toList())); notifyListeners(); }
+  void saveCategoryBudgets() { prefs.setString('catBudgets_v32', jsonEncode(categoryBudgets)); notifyListeners(); }
 
   void addInstallment(String title, String provider, double monthly, int months, int dueDay) { installments.add(InstallmentModel(id: DateTime.now().millisecondsSinceEpoch.toString(), title: title, provider: provider, monthlyAmount: monthly, totalMonths: months, paidMonths: 0, dueDayOfMonth: dueDay)); saveInstallments(); }
   void markInstallmentPaid(String id) { final inst = installments.firstWhere((i) => i.id == id); if (inst.paidMonths < inst.totalMonths) { inst.paidMonths++; saveInstallments(); } }
@@ -208,10 +208,10 @@ class AppData extends ChangeNotifier {
   Future<void> exportSecureBackup() async {
     try {
       final allData = {
-        'cards': prefs.getString('cardsData_v31'),
-        'installments': prefs.getString('installments_v31'),
-        'budgets': prefs.getString('catBudgets_v31'),
-        'fingerprints': prefs.getStringList('processed_fps_v31'),
+        'cards': prefs.getString('cardsData_v32'),
+        'installments': prefs.getString('installments_v32'),
+        'budgets': prefs.getString('catBudgets_v32'),
+        'fingerprints': prefs.getStringList('processed_fps_v32'),
       };
       final jsonStr = jsonEncode(allData);
       final bytes = utf8.encode(jsonStr);
@@ -233,10 +233,10 @@ class AppData extends ChangeNotifier {
         final jsonStr = utf8.decode(bytes);
         final Map<String, dynamic> data = jsonDecode(jsonStr);
 
-        if (data.containsKey('cards') && data['cards'] != null) prefs.setString('cardsData_v31', data['cards']);
-        if (data.containsKey('installments') && data['installments'] != null) prefs.setString('installments_v31', data['installments']);
-        if (data.containsKey('budgets') && data['budgets'] != null) prefs.setString('catBudgets_v31', data['budgets']);
-        if (data.containsKey('fingerprints') && data['fingerprints'] != null) prefs.setStringList('processed_fps_v31', List<String>.from(data['fingerprints']));
+        if (data.containsKey('cards') && data['cards'] != null) prefs.setString('cardsData_v32', data['cards']);
+        if (data.containsKey('installments') && data['installments'] != null) prefs.setString('installments_v32', data['installments']);
+        if (data.containsKey('budgets') && data['budgets'] != null) prefs.setString('catBudgets_v32', data['budgets']);
+        if (data.containsKey('fingerprints') && data['fingerprints'] != null) prefs.setStringList('processed_fps_v32', List<String>.from(data['fingerprints']));
         
         _loadAll();
       }
@@ -346,6 +346,127 @@ class _MainLayoutScreenState extends State<MainLayoutScreen> {
   }
 }
 
+// ---------------- واجهة البحث والفلترة ----------------
+class SearchTransactionsScreen extends StatefulWidget {
+  final AppData appData;
+  const SearchTransactionsScreen({super.key, required this.appData});
+
+  @override
+  State<SearchTransactionsScreen> createState() => _SearchTransactionsScreenState();
+}
+
+class _SearchTransactionsScreenState extends State<SearchTransactionsScreen> {
+  String _query = '';
+  DateTime? _startDate;
+  DateTime? _endDate;
+
+  DateTime? _parseDate(String dateStr) {
+    try {
+      final match = RegExp(r'(\d{1,2})/(\d{1,2})/(\d{4})').firstMatch(dateStr);
+      if (match != null) {
+        return DateTime(int.parse(match.group(3)!), int.parse(match.group(2)!), int.parse(match.group(1)!));
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = widget.appData.isDarkMode;
+    final allTxs = widget.appData.userCards.expand((c) => c.transactions.map((t) => {'card': c, 'tx': t})).toList();
+    
+    final filtered = allTxs.where((item) {
+      final tx = item['tx'] as TransactionItem;
+      bool matchesQuery = _query.isEmpty || 
+                          tx.name.toLowerCase().contains(_query.toLowerCase()) || 
+                          tx.category.toLowerCase().contains(_query.toLowerCase()) || 
+                          (tx.subtitle != null && tx.subtitle!.toLowerCase().contains(_query.toLowerCase()));
+      bool matchesDate = true;
+      if (_startDate != null && _endDate != null) {
+        final d = _parseDate(tx.date);
+        if (d != null) {
+          matchesDate = d.isAfter(_startDate!.subtract(const Duration(days: 1))) && d.isBefore(_endDate!.add(const Duration(days: 1)));
+        } else {
+          matchesDate = false;
+        }
+      }
+      return matchesQuery && matchesDate;
+    }).toList();
+
+    return Scaffold(
+      appBar: AppBar(
+        backgroundColor: isDark ? const Color(0xFF121212) : Colors.white,
+        elevation: 0,
+        iconTheme: IconThemeData(color: isDark ? Colors.white : Colors.black),
+        title: TextField(
+          autofocus: true,
+          style: TextStyle(color: isDark ? Colors.white : Colors.black),
+          decoration: const InputDecoration(
+            hintText: 'ابحث عن متجر، شخص، أو تصنيف...',
+            hintStyle: TextStyle(color: Colors.grey, fontSize: 14),
+            border: InputBorder.none,
+          ),
+          onChanged: (v) => setState(() => _query = v),
+        ),
+        actions: [
+          IconButton(
+            icon: Icon(Icons.date_range_rounded, color: _startDate != null ? const Color(0xFF10B981) : Colors.grey),
+            onPressed: () async {
+              final res = await showDateRangePicker(
+                context: context,
+                firstDate: DateTime(2020),
+                lastDate: DateTime(2030),
+                builder: (ctx, child) => Theme(data: ThemeData.light().copyWith(colorScheme: const ColorScheme.light(primary: Color(0xFF10B981))), child: child!),
+              );
+              if (res != null) setState(() { _startDate = res.start; _endDate = res.end; });
+            },
+          ),
+          if (_startDate != null)
+            IconButton(
+              icon: const Icon(Icons.clear, color: Colors.redAccent),
+              onPressed: () => setState(() { _startDate = null; _endDate = null; }),
+            )
+        ],
+      ),
+      body: filtered.isEmpty 
+        ? const Center(child: Text('لا توجد معاملات مطابقة للبحث', style: TextStyle(color: Colors.grey)))
+        : ListView.builder(
+            padding: const EdgeInsets.all(16),
+            itemCount: filtered.length,
+            itemBuilder: (ctx, i) {
+              final tx = filtered[i]['tx'] as TransactionItem;
+              final card = filtered[i]['card'] as UserCardModel;
+              return Container(
+                margin: const EdgeInsets.only(bottom: 12), padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(color: isDark ? const Color(0xFF1C1C1E) : Colors.white, borderRadius: BorderRadius.circular(16)),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(tx.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                          if (tx.subtitle != null && tx.subtitle!.isNotEmpty) ...[
+                            const SizedBox(height: 2),
+                            Text(tx.subtitle!, style: TextStyle(color: Colors.blueAccent.withOpacity(0.8), fontSize: 11, fontWeight: FontWeight.w500)),
+                          ],
+                          const SizedBox(height: 2),
+                          Text('${tx.category} • ${tx.date} • ${card.bank.name}', style: const TextStyle(color: Colors.grey, fontSize: 11)),
+                        ],
+                      ),
+                    ),
+                    Text('${tx.isIncome ? '+' : '-'}${tx.amount.toStringAsFixed(0)}', style: TextStyle(color: tx.isIncome ? Colors.green : Colors.redAccent, fontWeight: FontWeight.bold, fontSize: 16)),
+                  ],
+                ),
+              );
+            },
+          ),
+    );
+  }
+}
+// -------------------------------------------------------------------
+
 class AppleWalletScreen extends StatefulWidget {
   final AppData appData; const AppleWalletScreen({super.key, required this.appData});
   @override State<AppleWalletScreen> createState() => _AppleWalletScreenState();
@@ -361,7 +482,15 @@ class _AppleWalletScreenState extends State<AppleWalletScreen> {
   @override Widget build(BuildContext context) {
     final cards = widget.appData.userCards;
     return SafeArea(child: Column(children: [
-      Padding(padding: const EdgeInsets.fromLTRB(20, 20, 20, 10), child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(AppStrings.get(widget.appData.language, 'wallet'), style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold)), Text('${AppStrings.get(widget.appData.language, 'total')} ${widget.appData.getTotalBalance().toStringAsFixed(0)} EGP', style: const TextStyle(color: Colors.grey, fontSize: 14))]), IconButton(icon: const Icon(Icons.sync_rounded, color: Colors.blueAccent, size: 28), onPressed: () => widget.appData.autoDetectChronological())])),
+      Padding(padding: const EdgeInsets.fromLTRB(20, 20, 20, 10), child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+        Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(AppStrings.get(widget.appData.language, 'wallet'), style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold)), Text('${AppStrings.get(widget.appData.language, 'total')} ${widget.appData.getTotalBalance().toStringAsFixed(0)} EGP', style: const TextStyle(color: Colors.grey, fontSize: 14))]), 
+        Row(
+          children: [
+            IconButton(icon: const Icon(Icons.search_rounded, color: Colors.grey, size: 28), onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => SearchTransactionsScreen(appData: widget.appData)))),
+            IconButton(icon: const Icon(Icons.sync_rounded, color: Colors.blueAccent, size: 28), onPressed: () => widget.appData.autoDetectChronological()),
+          ],
+        )
+      ])),
       Expanded(child: _expandedIndex != null ? _buildExpandedView(cards[_expandedIndex!]) : _buildStackedView(cards)),
     ]));
   }
