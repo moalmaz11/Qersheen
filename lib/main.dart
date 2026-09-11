@@ -12,7 +12,7 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'institutions_data.dart';
-import 'package:intl/intl.dart';
+import 'package:intl/intl.dart' hide TextDirection;
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -611,7 +611,7 @@ class ObligationsView extends StatefulWidget {
 }
 
 class ObligationsViewState extends State<ObligationsView> {
-  int _selectedTab = 0; // 0: الاقساط, 1: الاشتراكات, 2: الديون
+  int _selectedTab = 0;
 
   void _showAddOptions() {
     showModalBottomSheet(context: context, shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))), builder: (ctx) => Padding(padding: const EdgeInsets.all(24), child: Column(mainAxisSize: MainAxisSize.min, children: [
@@ -669,6 +669,90 @@ class ObligationsViewState extends State<ObligationsView> {
           }))
       )
     ]));
+  }
+}
+
+class HistoricalAnalyticsScreen extends StatelessWidget {
+  final AppData appData;
+  const HistoricalAnalyticsScreen({super.key, required this.appData});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = appData.isDarkMode;
+    final now = DateTime.now();
+    List<Map<String, dynamic>> monthlyData = [];
+    double maxAmount = 0.0;
+
+    for (int i = 5; i >= 0; i--) {
+      final monthDate = DateTime(now.year, now.month - i, 1);
+      final monthStr = '${monthDate.month}/${monthDate.year}';
+      final monthLabel = DateFormat('MMM').format(monthDate);
+      
+      double monthTotal = 0.0;
+      for (var c in appData.userCards) {
+        for (var tx in c.transactions) {
+          if (!tx.isIncome && tx.category != 'تحويل داخلي' && (tx.date.contains('/$monthStr') || tx.date.endsWith(monthStr))) {
+            monthTotal += tx.amount;
+          }
+        }
+      }
+      if (monthTotal > maxAmount) maxAmount = monthTotal;
+      monthlyData.add({'label': monthLabel, 'total': monthTotal});
+    }
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('التحليلات والمقارنات', style: TextStyle(fontWeight: FontWeight.bold)),
+        backgroundColor: isDark ? const Color(0xFF121212) : Colors.white,
+        elevation: 0,
+        iconTheme: IconThemeData(color: isDark ? Colors.white : Colors.black),
+        titleTextStyle: TextStyle(color: isDark ? Colors.white : Colors.black, fontSize: 18),
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('إجمالي المصروفات (آخر 6 أشهر)', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 40),
+            Expanded(
+              child: BarChart(
+                BarChartData(
+                  alignment: BarChartAlignment.spaceAround,
+                  maxY: maxAmount == 0 ? 100 : maxAmount * 1.2,
+                  barTouchData: BarTouchData(
+                    touchTooltipData: BarTouchTooltipData(
+                      getTooltipColor: (_) => Colors.blueGrey,
+                      getTooltipItem: (group, groupIndex, rod, rodIndex) => BarTooltipItem('${rod.toY.toStringAsFixed(0)}', const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                    ),
+                  ),
+                  titlesData: FlTitlesData(
+                    show: true,
+                    bottomTitles: AxisTitles(
+                      sideTitles: SideTitles(
+                        showTitles: true,
+                        getTitlesWidget: (value, meta) => Padding(padding: const EdgeInsets.only(top: 8.0), child: Text(monthlyData[value.toInt()]['label'])),
+                      ),
+                    ),
+                    leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                    topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                    rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                  ),
+                  borderData: FlBorderData(show: false),
+                  gridData: const FlGridData(show: false),
+                  barGroups: monthlyData.asMap().entries.map((e) {
+                    return BarChartGroupData(
+                      x: e.key,
+                      barRods: [BarChartRodData(toY: e.value['total'], color: const Color(0xFF10B981), width: 20, borderRadius: BorderRadius.circular(4))],
+                    );
+                  }).toList(),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 
