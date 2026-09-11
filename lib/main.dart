@@ -89,24 +89,24 @@ class AppData extends ChangeNotifier {
   }
 
   void _loadAll() {
-    final cJson = prefs.getString('cardsData_v32');
+    final cJson = prefs.getString('cardsData_v33');
     if (cJson != null && cJson.isNotEmpty) userCards = (jsonDecode(cJson) as List).map((e) => UserCardModel.fromJson(e)).toList();
     else { userCards = [UserCardModel(id: 'cash_wallet_main', bankId: 'cash', cardIdentifier: language == 'ar' ? 'محفظة النقود السائلة' : 'Cash Wallet', balance: 0.0, transactions: [])]; saveCards(); }
     
-    final iJson = prefs.getString('installments_v32');
+    final iJson = prefs.getString('installments_v33');
     if (iJson != null && iJson.isNotEmpty) installments = (jsonDecode(iJson) as List).map((e) => InstallmentModel.fromJson(e)).toList();
     
-    final bJson = prefs.getString('catBudgets_v32');
+    final bJson = prefs.getString('catBudgets_v33');
     if (bJson != null && bJson.isNotEmpty) categoryBudgets = (jsonDecode(bJson) as Map).map((k, v) => MapEntry(k.toString(), (v as num).toDouble()));
     else { categoryBudgets = {'فواتير ومشتريات': 3000.0, 'سوبرماركت': 4000.0, 'مواصلات': 1500.0, 'عام': 2000.0}; saveCategoryBudgets(); }
     
-    final fps = prefs.getStringList('processed_fps_v32');
+    final fps = prefs.getStringList('processed_fps_v33');
     if (fps != null) processedMessageFingerprints = fps.toSet();
   }
 
-  void saveCards() { prefs.setString('cardsData_v32', jsonEncode(userCards.map((c) => c.toJson()).toList())); prefs.setStringList('processed_fps_v32', processedMessageFingerprints.toList()); notifyListeners(); }
-  void saveInstallments() { prefs.setString('installments_v32', jsonEncode(installments.map((i) => i.toJson()).toList())); notifyListeners(); }
-  void saveCategoryBudgets() { prefs.setString('catBudgets_v32', jsonEncode(categoryBudgets)); notifyListeners(); }
+  void saveCards() { prefs.setString('cardsData_v33', jsonEncode(userCards.map((c) => c.toJson()).toList())); prefs.setStringList('processed_fps_v33', processedMessageFingerprints.toList()); notifyListeners(); }
+  void saveInstallments() { prefs.setString('installments_v33', jsonEncode(installments.map((i) => i.toJson()).toList())); notifyListeners(); }
+  void saveCategoryBudgets() { prefs.setString('catBudgets_v33', jsonEncode(categoryBudgets)); notifyListeners(); }
 
   void addInstallment(String title, String provider, double monthly, int months, int dueDay) { installments.add(InstallmentModel(id: DateTime.now().millisecondsSinceEpoch.toString(), title: title, provider: provider, monthlyAmount: monthly, totalMonths: months, paidMonths: 0, dueDayOfMonth: dueDay)); saveInstallments(); }
   void markInstallmentPaid(String id) { final inst = installments.firstWhere((i) => i.id == id); if (inst.paidMonths < inst.totalMonths) { inst.paidMonths++; saveInstallments(); } }
@@ -190,17 +190,36 @@ class AppData extends ChangeNotifier {
     final file = File('${Directory.systemTemp.path}/qersheen_report.csv'); await file.writeAsString(buffer.toString(), encoding: utf8); await Share.shareXFiles([XFile(file.path)], text: 'تقرير معاملات قرشين');
   }
 
-  Future<void> exportPdfReport() async {
-    final pdf = pw.Document(); final font = await PdfGoogleFonts.cairoRegular();
+  // الدالة الجديدة لتصدير PDF بناءً على الحساب المختار
+  Future<void> exportPdfReport({String? cardId}) async {
+    final pdf = pw.Document(); 
+    final font = await PdfGoogleFonts.cairoRegular();
     double totalIn = 0.0, totalOut = 0.0;
-    for (var c in userCards) { for (var t in c.transactions) { if (t.isIncome) totalIn += t.amount; else totalOut += t.amount; } }
-    pdf.addPage(pw.Page(
-      theme: pw.ThemeData.withFont(base: font), textDirection: pw.TextDirection.rtl,
-      build: (pw.Context context) => pw.Column(children: [
-        pw.Text('كشف حساب قرشين', style: const pw.TextStyle(fontSize: 24)), pw.SizedBox(height: 20),
-        pw.Text('الدخل: $totalIn | المصروفات: $totalOut'), pw.SizedBox(height: 20),
-        pw.Table.fromTextArray(headers: ['المعاملة', 'المبلغ', 'التاريخ'], data: userCards.expand((c) => c.transactions.take(20).map((t) => [t.name, '${t.isIncome ? '+' : '-'}${t.amount}', t.date])).toList()),
-      ]),
+    
+    final cardsToExport = cardId == null ? userCards : userCards.where((c) => c.id == cardId).toList();
+    String reportTitle = cardId == null ? 'كشف حساب شامل لجميع المحافظ' : 'كشف حساب: ${cardsToExport.first.bank.name}';
+
+    for (var c in cardsToExport) { 
+      for (var t in c.transactions) { 
+        if (t.isIncome) totalIn += t.amount; else totalOut += t.amount; 
+      } 
+    }
+    
+    final tableData = cardsToExport.expand((c) => c.transactions.map((t) => [t.name, '${t.isIncome ? '+' : '-'}${t.amount}', t.date])).toList();
+
+    pdf.addPage(pw.MultiPage(
+      theme: pw.ThemeData.withFont(base: font), 
+      textDirection: pw.TextDirection.rtl,
+      build: (pw.Context context) => [
+        pw.Text(reportTitle, style: const pw.TextStyle(fontSize: 24)), 
+        pw.SizedBox(height: 20),
+        pw.Text('الدخل: $totalIn | المصروفات: $totalOut'), 
+        pw.SizedBox(height: 20),
+        if (tableData.isNotEmpty)
+          pw.Table.fromTextArray(headers: ['المعاملة', 'المبلغ', 'التاريخ'], data: tableData)
+        else
+          pw.Text('لا توجد معاملات في هذا الحساب.'),
+      ],
     ));
     await Printing.sharePdf(bytes: await pdf.save(), filename: 'qersheen_statement.pdf');
   }
@@ -208,10 +227,10 @@ class AppData extends ChangeNotifier {
   Future<void> exportSecureBackup() async {
     try {
       final allData = {
-        'cards': prefs.getString('cardsData_v32'),
-        'installments': prefs.getString('installments_v32'),
-        'budgets': prefs.getString('catBudgets_v32'),
-        'fingerprints': prefs.getStringList('processed_fps_v32'),
+        'cards': prefs.getString('cardsData_v33'),
+        'installments': prefs.getString('installments_v33'),
+        'budgets': prefs.getString('catBudgets_v33'),
+        'fingerprints': prefs.getStringList('processed_fps_v33'),
       };
       final jsonStr = jsonEncode(allData);
       final bytes = utf8.encode(jsonStr);
@@ -233,10 +252,10 @@ class AppData extends ChangeNotifier {
         final jsonStr = utf8.decode(bytes);
         final Map<String, dynamic> data = jsonDecode(jsonStr);
 
-        if (data.containsKey('cards') && data['cards'] != null) prefs.setString('cardsData_v32', data['cards']);
-        if (data.containsKey('installments') && data['installments'] != null) prefs.setString('installments_v32', data['installments']);
-        if (data.containsKey('budgets') && data['budgets'] != null) prefs.setString('catBudgets_v32', data['budgets']);
-        if (data.containsKey('fingerprints') && data['fingerprints'] != null) prefs.setStringList('processed_fps_v32', List<String>.from(data['fingerprints']));
+        if (data.containsKey('cards') && data['cards'] != null) prefs.setString('cardsData_v33', data['cards']);
+        if (data.containsKey('installments') && data['installments'] != null) prefs.setString('installments_v33', data['installments']);
+        if (data.containsKey('budgets') && data['budgets'] != null) prefs.setString('catBudgets_v33', data['budgets']);
+        if (data.containsKey('fingerprints') && data['fingerprints'] != null) prefs.setStringList('processed_fps_v33', List<String>.from(data['fingerprints']));
         
         _loadAll();
       }
@@ -346,7 +365,6 @@ class _MainLayoutScreenState extends State<MainLayoutScreen> {
   }
 }
 
-// ---------------- واجهة البحث والفلترة ----------------
 class SearchTransactionsScreen extends StatefulWidget {
   final AppData appData;
   const SearchTransactionsScreen({super.key, required this.appData});
@@ -465,7 +483,6 @@ class _SearchTransactionsScreenState extends State<SearchTransactionsScreen> {
     );
   }
 }
-// -------------------------------------------------------------------
 
 class AppleWalletScreen extends StatefulWidget {
   final AppData appData; const AppleWalletScreen({super.key, required this.appData});
@@ -635,12 +652,44 @@ class CategoryBudgetsView extends StatelessWidget {
 
 class SettingsTabView extends StatelessWidget {
   final AppData appData; const SettingsTabView({super.key, required this.appData});
+
+  void _showPdfExportOptions(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (ctx) => Padding(
+        padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom, top: 24, left: 24, right: 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('اختر الحساب لتصدير التقرير', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 16),
+            ListTile(
+              leading: const Icon(Icons.account_balance_wallet_rounded, color: Color(0xFF10B981)),
+              title: const Text('جميع الحسابات والمحافظ'),
+              onTap: () { Navigator.pop(ctx); appData.exportPdfReport(); },
+            ),
+            const Divider(),
+            ...appData.userCards.map((card) => ListTile(
+              leading: Icon(Icons.credit_card_rounded, color: card.bank.gradientColors.first),
+              title: Text(card.bank.name),
+              subtitle: Text(card.cardIdentifier),
+              onTap: () { Navigator.pop(ctx); appData.exportPdfReport(cardId: card.id); },
+            )).toList(),
+            const SizedBox(height: 20),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override Widget build(BuildContext context) {
     final lang = appData.language;
     return SafeArea(child: ListView(padding: const EdgeInsets.all(20), children: [
       Text(AppStrings.get(lang, 'settings'), style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)), const SizedBox(height: 20),
       ListTile(leading: const Icon(Icons.table_chart_rounded, color: Colors.green, size: 28), title: Text(AppStrings.get(lang, 'export_csv')), onTap: () => appData.exportCsvReport()), const Divider(),
-      ListTile(leading: const Icon(Icons.picture_as_pdf_rounded, color: Colors.redAccent, size: 28), title: Text(AppStrings.get(lang, 'export_pdf')), onTap: () => appData.exportPdfReport()), const Divider(),
+      ListTile(leading: const Icon(Icons.picture_as_pdf_rounded, color: Colors.redAccent, size: 28), title: Text(AppStrings.get(lang, 'export_pdf')), onTap: () => _showPdfExportOptions(context)), const Divider(),
       ListTile(leading: const Icon(Icons.lock_reset_rounded, color: Colors.amber, size: 28), title: const Text('نسخ احتياطي مشفر (Backup)'), subtitle: const Text('تصدير ملف بيانات آمن ومحمي'), onTap: () => appData.exportSecureBackup()), const Divider(),
       ListTile(leading: const Icon(Icons.restore_rounded, color: Colors.teal, size: 28), title: const Text('استعادة البيانات (Restore)'), subtitle: const Text('استرجاع بياناتك من ملف النسخ الاحتياطي'), onTap: () => appData.importSecureBackup()), const Divider(),
       SwitchListTile(secondary: const Icon(Icons.language_rounded, color: Colors.blue, size: 28), title: const Text('English / العربية'), value: lang == 'en', onChanged: (_) => appData.toggleLanguage()),
