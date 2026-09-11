@@ -67,7 +67,6 @@ class AppData extends ChangeNotifier {
   void toggleLanguage() { language = language == 'ar' ? 'en' : 'ar'; prefs.setString('app_lang', language); notifyListeners(); }
   void toggleTheme() { isDarkMode = !isDarkMode; prefs.setBool('isDark', isDarkMode); notifyListeners(); }
   
-  // حل مشكلة البصمة لتتحدث وتلغى لحظياً
   void toggleBiometric(bool val) {
     isBiometricEnabled = val;
     prefs.setBool('isBioEnabled', val);
@@ -90,37 +89,37 @@ class AppData extends ChangeNotifier {
   }
 
   void _loadAll() {
-    final cJson = prefs.getString('cardsData_v29');
+    final cJson = prefs.getString('cardsData_v30');
     if (cJson != null && cJson.isNotEmpty) userCards = (jsonDecode(cJson) as List).map((e) => UserCardModel.fromJson(e)).toList();
     else { userCards = [UserCardModel(id: 'cash_wallet_main', bankId: 'cash', cardIdentifier: language == 'ar' ? 'محفظة النقود السائلة' : 'Cash Wallet', balance: 0.0, transactions: [])]; saveCards(); }
     
-    final iJson = prefs.getString('installments_v29');
+    final iJson = prefs.getString('installments_v30');
     if (iJson != null && iJson.isNotEmpty) installments = (jsonDecode(iJson) as List).map((e) => InstallmentModel.fromJson(e)).toList();
     
-    final bJson = prefs.getString('catBudgets_v29');
+    final bJson = prefs.getString('catBudgets_v30');
     if (bJson != null && bJson.isNotEmpty) categoryBudgets = (jsonDecode(bJson) as Map).map((k, v) => MapEntry(k.toString(), (v as num).toDouble()));
     else { categoryBudgets = {'فواتير ومشتريات': 3000.0, 'سوبرماركت': 4000.0, 'مواصلات': 1500.0, 'عام': 2000.0}; saveCategoryBudgets(); }
     
-    final fps = prefs.getStringList('processed_fps_v29');
+    final fps = prefs.getStringList('processed_fps_v30');
     if (fps != null) processedMessageFingerprints = fps.toSet();
   }
 
-  void saveCards() { prefs.setString('cardsData_v29', jsonEncode(userCards.map((c) => c.toJson()).toList())); prefs.setStringList('processed_fps_v29', processedMessageFingerprints.toList()); notifyListeners(); }
-  void saveInstallments() { prefs.setString('installments_v29', jsonEncode(installments.map((i) => i.toJson()).toList())); notifyListeners(); }
-  void saveCategoryBudgets() { prefs.setString('catBudgets_v29', jsonEncode(categoryBudgets)); notifyListeners(); }
+  void saveCards() { prefs.setString('cardsData_v30', jsonEncode(userCards.map((c) => c.toJson()).toList())); prefs.setStringList('processed_fps_v30', processedMessageFingerprints.toList()); notifyListeners(); }
+  void saveInstallments() { prefs.setString('installments_v30', jsonEncode(installments.map((i) => i.toJson()).toList())); notifyListeners(); }
+  void saveCategoryBudgets() { prefs.setString('catBudgets_v30', jsonEncode(categoryBudgets)); notifyListeners(); }
 
   void addInstallment(String title, String provider, double monthly, int months) { installments.add(InstallmentModel(id: DateTime.now().millisecondsSinceEpoch.toString(), title: title, provider: provider, monthlyAmount: monthly, totalMonths: months, paidMonths: 0, dueDayOfMonth: 1)); saveInstallments(); }
   void markInstallmentPaid(String id) { final inst = installments.firstWhere((i) => i.id == id); if (inst.paidMonths < inst.totalMonths) { inst.paidMonths++; saveInstallments(); } }
   void deleteInstallment(String id) { installments.removeWhere((i) => i.id == id); saveInstallments(); }
   void editCardName(String cardId, String newName) { userCards.firstWhere((c) => c.id == cardId).cardIdentifier = newName; saveCards(); }
   void deleteCard(String cardId) { if (cardId != 'cash_wallet_main') { userCards.removeWhere((c) => c.id == cardId); saveCards(); } }
+  void setCategoryBudget(String category, double limit) { categoryBudgets[category] = limit; saveCategoryBudgets(); }
 
-  // التحكم اليدوي الفعلي للنقود السائلة
   void addManualCashTx({required String title, required double amount, required bool isIncome, required String category}) {
     final cashCard = userCards.firstWhere((c) => c.bankId == 'cash');
     if (isIncome) cashCard.balance += amount; else cashCard.balance -= amount;
     final timeStr = '${DateTime.now().day}/${DateTime.now().month}/${DateTime.now().year}';
-    cashCard.transactions.insert(0, TransactionItem(name: title, subtitle: 'يدوي', date: timeStr, amount: amount, isIncome: isIncome, category: category, txFingerprint: 'cash_${DateTime.now().millisecondsSinceEpoch}'));
+    cashCard.transactions.insert(0, TransactionItem(name: title, subtitle: 'إدخال يدوي', date: timeStr, amount: amount, isIncome: isIncome, category: category, txFingerprint: 'cash_${DateTime.now().millisecondsSinceEpoch}'));
     saveCards();
   }
 
@@ -145,6 +144,7 @@ class AppData extends ChangeNotifier {
     final fingerprint = uniqueId ?? '${bank.id}_${timestamp.millisecondsSinceEpoch}_${text.hashCode}';
     String? phone = RegExp(r'(01[0125][0-9]{8})').firstMatch(text)?.group(1);
     String? acc = RegExp(r'(?:\*+)?(\d{4})').firstMatch(text)?.group(1);
+    String? subDetails = phone ?? acc;
     
     if (!userCards.any((c) => c.bankId == bank.id)) { userCards.insert(0, UserCardModel(id: '${bank.id}_${DateTime.now().millisecondsSinceEpoch}', bankId: bank.id, cardIdentifier: phone ?? (acc != null ? '•••• $acc' : '•••• 0000'), balance: 0.0, transactions: [])); }
     final card = userCards.firstWhere((c) => c.bankId == bank.id);
@@ -159,12 +159,12 @@ class AppData extends ChangeNotifier {
     if (!isIncome && !isExpense) return;
 
     String extractedName = 'معاملة مالية';
-    final nameMatch = RegExp(r'(?:لـ|إلى|من|لدى|في|to|from)\s+([A-Za-z\u0621-\u064A0-9\s\.\-]{3,25})').firstMatch(text);
+    final nameMatch = RegExp(r'(?:لـ|إلى|من|لدى|في|حساب|رقم|to|from)\s+([A-Za-z\u0621-\u064A0-9\s\.\-]{3,25})', caseSensitive: false).firstMatch(text);
     if (nameMatch != null) {
       String rawName = nameMatch.group(1)!;
-      rawName = rawName.replaceAll(RegExp(r'(محفظة|كاش|هو|عمليه|شراء|واكسب|رصيد|حساب|رقم|بمبلغ|بتاريخ)'), '');
+      rawName = rawName.replaceAll(RegExp(r'(محفظة|كاش|فودافون|رصيد|مبلغ|جنية|جنيه|EGP|LE|رقم|حساب|هو|عمليه|شراء|واكسب)'), '');
       extractedName = rawName.trim();
-      if (extractedName.isEmpty) extractedName = 'معاملة مالية';
+      if (extractedName.length < 2) extractedName = 'معاملة مالية';
     }
 
     String title = isIncome ? 'استلام من $extractedName' : 'دفع لـ $extractedName';
@@ -175,7 +175,7 @@ class AppData extends ChangeNotifier {
       final amt = double.tryParse(amtMatch.group(1)!);
       if (amt != null && amt > 0) {
         if (!hasExplicitBalance) { if (isIncome) card.balance += amt; else card.balance -= amt; }
-        card.transactions.insert(0, TransactionItem(name: title, date: '${timestamp.day}/${timestamp.month}/${timestamp.year}', amount: amt, isIncome: isIncome, category: category, txFingerprint: fingerprint));
+        card.transactions.insert(0, TransactionItem(name: title, subtitle: subDetails, date: '${timestamp.day}/${timestamp.month}/${timestamp.year}', amount: amt, isIncome: isIncome, category: category, txFingerprint: fingerprint));
         processedMessageFingerprints.add(fingerprint);
         saveCards();
       }
@@ -202,6 +202,44 @@ class AppData extends ChangeNotifier {
     ));
     await Printing.sharePdf(bytes: await pdf.save(), filename: 'qersheen_statement.pdf');
   }
+
+  Future<void> exportSecureBackup() async {
+    try {
+      final allData = {
+        'cards': prefs.getString('cardsData_v30'),
+        'installments': prefs.getString('installments_v30'),
+        'budgets': prefs.getString('catBudgets_v30'),
+        'fingerprints': prefs.getStringList('processed_fps_v30'),
+      };
+      final jsonStr = jsonEncode(allData);
+      final bytes = utf8.encode(jsonStr);
+      final encrypted = base64Encode(bytes);
+      
+      final file = File('${Directory.systemTemp.path}/qersheen_secure_backup.bak');
+      await file.writeAsString(encrypted);
+      await Share.shareXFiles([XFile(file.path)], text: 'نسخ احتياطي مشفر لتطبيق قرشين');
+    } catch (_) {}
+  }
+
+  Future<void> importSecureBackup() async {
+    try {
+      FilePickerResult? result = await FilePicker.platform.pickFiles(type: FileType.custom, allowedExtensions: ['bak']);
+      if (result != null && result.files.single.path != null) {
+        final file = File(result.files.single.path!);
+        final encrypted = await file.readAsString();
+        final bytes = base64Decode(encrypted);
+        final jsonStr = utf8.decode(bytes);
+        final Map<String, dynamic> data = jsonDecode(jsonStr);
+
+        if (data.containsKey('cards') && data['cards'] != null) prefs.setString('cardsData_v30', data['cards']);
+        if (data.containsKey('installments') && data['installments'] != null) prefs.setString('installments_v30', data['installments']);
+        if (data.containsKey('budgets') && data['budgets'] != null) prefs.setString('catBudgets_v30', data['budgets']);
+        if (data.containsKey('fingerprints') && data['fingerprints'] != null) prefs.setStringList('processed_fps_v30', List<String>.from(data['fingerprints']));
+        
+        _loadAll();
+      }
+    } catch (_) {}
+  }
 }
 
 class UserCardModel {
@@ -222,8 +260,8 @@ class UserCardModel {
 class TransactionItem {
   final String name, date, category; final String? subtitle, txFingerprint; final double amount; final bool isIncome;
   TransactionItem({required this.name, this.subtitle, required this.date, required this.amount, required this.isIncome, required this.category, this.txFingerprint});
-  Map<String, dynamic> toJson() => {'name': name, 'date': date, 'amount': amount, 'isIncome': isIncome, 'category': category, 'txFingerprint': txFingerprint};
-  factory TransactionItem.fromJson(Map<String, dynamic> j) => TransactionItem(name: j['name'], date: j['date'], amount: (j['amount'] as num).toDouble(), isIncome: j['isIncome'], category: j['category'] ?? 'عام', txFingerprint: j['txFingerprint']);
+  Map<String, dynamic> toJson() => {'name': name, 'date': date, 'amount': amount, 'isIncome': isIncome, 'category': category, 'txFingerprint': txFingerprint, 'subtitle': subtitle};
+  factory TransactionItem.fromJson(Map<String, dynamic> j) => TransactionItem(name: j['name'], date: j['date'], amount: (j['amount'] as num).toDouble(), isIncome: j['isIncome'], category: j['category'] ?? 'عام', txFingerprint: j['txFingerprint'], subtitle: j['subtitle']);
 }
 
 class QersheenApp extends StatelessWidget {
@@ -299,9 +337,27 @@ class _AppleWalletScreenState extends State<AppleWalletScreen> {
   }
 
   Widget _buildStackedView(List<UserCardModel> cards) => SingleChildScrollView(padding: const EdgeInsets.only(bottom: 40), child: SizedBox(height: 220.0 + (cards.length - 1) * 70.0, child: Stack(clipBehavior: Clip.none, children: List.generate(cards.length, (i) => Positioned(top: i * 70.0, left: 16, right: 16, child: GestureDetector(onTap: () => setState(() => _expandedIndex = i), onLongPress: () => _showCardOptions(cards[i]), child: _buildCardDesign(cards[i])))))));
-  Widget _buildExpandedView(UserCardModel card) => Column(children: [Padding(padding: const EdgeInsets.symmetric(horizontal: 16), child: GestureDetector(onTap: () => setState(() => _expandedIndex = null), onLongPress: () => _showCardOptions(card), child: _buildCardDesign(card))), TextButton.icon(onPressed: () => setState(() => _expandedIndex = null), icon: const Icon(Icons.keyboard_arrow_up_rounded, color: Colors.grey), label: const Text('طي الكارت', style: TextStyle(color: Colors.grey))), Expanded(child: ListView.builder(padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8), itemCount: card.transactions.length, itemBuilder: (ctx, idx) { final tx = card.transactions[idx]; return Container(margin: const EdgeInsets.only(bottom: 12), padding: const EdgeInsets.all(16), decoration: BoxDecoration(color: widget.appData.isDarkMode ? const Color(0xFF1C1C1E) : Colors.white, borderRadius: BorderRadius.circular(16)), child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(tx.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)), Text('${tx.category} • ${tx.date}', style: const TextStyle(color: Colors.grey, fontSize: 12))])), Text('${tx.isIncome ? '+' : '-'}${tx.amount.toStringAsFixed(0)}', style: TextStyle(color: tx.isIncome ? Colors.green : Colors.redAccent, fontWeight: FontWeight.bold, fontSize: 16))])); }))]);
   
-  // تصميم الكارت مع دعم عرض اللوجوهات الحقيقية بدقة
+  Widget _buildExpandedView(UserCardModel card) => Column(children: [
+    Padding(padding: const EdgeInsets.symmetric(horizontal: 16), child: GestureDetector(onTap: () => setState(() => _expandedIndex = null), onLongPress: () => _showCardOptions(card), child: _buildCardDesign(card))), 
+    TextButton.icon(onPressed: () => setState(() => _expandedIndex = null), icon: const Icon(Icons.keyboard_arrow_up_rounded, color: Colors.grey), label: const Text('طي الكارت', style: TextStyle(color: Colors.grey))), 
+    Expanded(child: ListView.builder(padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8), itemCount: card.transactions.length, itemBuilder: (ctx, idx) { 
+      final tx = card.transactions[idx]; 
+      return Container(margin: const EdgeInsets.only(bottom: 12), padding: const EdgeInsets.all(16), decoration: BoxDecoration(color: widget.appData.isDarkMode ? const Color(0xFF1C1C1E) : Colors.white, borderRadius: BorderRadius.circular(16)), child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(tx.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)), 
+          if (tx.subtitle != null && tx.subtitle!.isNotEmpty) ...[
+            const SizedBox(height: 2),
+            Text(tx.subtitle!, style: TextStyle(color: Colors.blueAccent.withOpacity(0.8), fontSize: 11, fontWeight: FontWeight.w500)),
+          ],
+          const SizedBox(height: 2),
+          Text('${tx.category} • ${tx.date}', style: const TextStyle(color: Colors.grey, fontSize: 11))
+        ])), 
+        Text('${tx.isIncome ? '+' : '-'}${tx.amount.toStringAsFixed(0)}', style: TextStyle(color: tx.isIncome ? Colors.green : Colors.redAccent, fontWeight: FontWeight.bold, fontSize: 16))
+      ])); 
+    }))
+  ]);
+  
   Widget _buildCardDesign(UserCardModel card) {
     return Container(
       height: 220, padding: const EdgeInsets.all(24),
@@ -373,6 +429,8 @@ class _InstallmentsViewState extends State<InstallmentsView> {
   }
 }
 
+class CategoryBudgetsView extends StatelessWidget {
+  final AppData appData; const CategoryBudgetsView({super.key, required this.appData});
 
   void _showEditBudgetSheet(BuildContext context, String category, double currentLimit) {
     final ctrl = TextEditingController(text: currentLimit.toStringAsFixed(0));
@@ -386,7 +444,7 @@ class _InstallmentsViewState extends State<InstallmentsView> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('تعديل ميزانية: ', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+            Text('تعديل ميزانية: $category', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
             const SizedBox(height: 16),
             TextField(controller: ctrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'الحد الأقصى الجديد (ج.م)', border: OutlineInputBorder())),
             const SizedBox(height: 16),
@@ -397,7 +455,7 @@ class _InstallmentsViewState extends State<InstallmentsView> {
                 onPressed: () {
                   final newLimit = double.tryParse(ctrl.text);
                   if (newLimit != null && newLimit >= 0) {
-                    setCategoryBudget(category, newLimit);
+                    appData.setCategoryBudget(category, newLimit);
                     Navigator.pop(ctx);
                   }
                 },
@@ -411,15 +469,16 @@ class _InstallmentsViewState extends State<InstallmentsView> {
     );
   }
 
-class CategoryBudgetsView extends StatelessWidget {
-  final AppData appData; const CategoryBudgetsView({super.key, required this.appData});
   @override Widget build(BuildContext context) {
     return SafeArea(child: Column(children: [
       Padding(padding: const EdgeInsets.all(20), child: Align(alignment: Alignment.centerRight, child: Text(AppStrings.get(appData.language, 'budgets'), style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)))),
       Expanded(child: ListView(padding: const EdgeInsets.symmetric(horizontal: 16), children: appData.categoryBudgets.entries.map((e) {
         final spent = appData.getCategoryMonthlySpent(e.key); final limit = e.value; final pct = limit > 0 ? (spent / limit).clamp(0.0, 1.0) : 0.0; final isExceeded = spent > limit;
-        return Container(margin: const EdgeInsets.only(bottom: 16), padding: const EdgeInsets.all(20), decoration: BoxDecoration(color: appData.isDarkMode ? const Color(0xFF1C1C1E) : Colors.white, borderRadius: BorderRadius.circular(20), border: isExceeded ? Border.all(color: Colors.redAccent.withOpacity(0.5), width: 1.5) : null), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text(e.key, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)), Text('${(pct * 100).toStringAsFixed(0)}%', style: TextStyle(fontWeight: FontWeight.bold, color: isExceeded ? Colors.redAccent : const Color(0xFF10B981)))]), const SizedBox(height: 12), LinearProgressIndicator(value: pct, minHeight: 8, backgroundColor: Colors.grey.withOpacity(0.2), valueColor: AlwaysStoppedAnimation(isExceeded ? Colors.redAccent : const Color(0xFF10B981))), const SizedBox(height: 12), Text('الاستهلاك: ${spent.toStringAsFixed(0)} من أصل ${limit.toStringAsFixed(0)} ج.م', style: const TextStyle(fontSize: 12, color: Colors.grey))]));
-      }).toList()))))
+        return GestureDetector(
+          onTap: () => _showEditBudgetSheet(context, e.key, limit),
+          child: Container(margin: const EdgeInsets.only(bottom: 16), padding: const EdgeInsets.all(20), decoration: BoxDecoration(color: appData.isDarkMode ? const Color(0xFF1C1C1E) : Colors.white, borderRadius: BorderRadius.circular(20), border: isExceeded ? Border.all(color: Colors.redAccent.withOpacity(0.5), width: 1.5) : null), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text(e.key, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)), Text('${(pct * 100).toStringAsFixed(0)}%', style: TextStyle(fontWeight: FontWeight.bold, color: isExceeded ? Colors.redAccent : const Color(0xFF10B981)))]), const SizedBox(height: 12), LinearProgressIndicator(value: pct, minHeight: 8, backgroundColor: Colors.grey.withOpacity(0.2), valueColor: AlwaysStoppedAnimation(isExceeded ? Colors.redAccent : const Color(0xFF10B981))), const SizedBox(height: 12), Text('الاستهلاك: ${spent.toStringAsFixed(0)} من أصل ${limit.toStringAsFixed(0)} ج.م', style: const TextStyle(fontSize: 12, color: Colors.grey))])),
+        );
+      }).toList()))
     ]));
   }
 }
@@ -432,6 +491,8 @@ class SettingsTabView extends StatelessWidget {
       Text(AppStrings.get(lang, 'settings'), style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)), const SizedBox(height: 20),
       ListTile(leading: const Icon(Icons.table_chart_rounded, color: Colors.green, size: 28), title: Text(AppStrings.get(lang, 'export_csv')), onTap: () => appData.exportCsvReport()), const Divider(),
       ListTile(leading: const Icon(Icons.picture_as_pdf_rounded, color: Colors.redAccent, size: 28), title: Text(AppStrings.get(lang, 'export_pdf')), onTap: () => appData.exportPdfReport()), const Divider(),
+      ListTile(leading: const Icon(Icons.lock_reset_rounded, color: Colors.amber, size: 28), title: const Text('نسخ احتياطي مشفر (Backup)'), subtitle: const Text('تصدير ملف بيانات آمن ومحمي'), onTap: () => appData.exportSecureBackup()), const Divider(),
+      ListTile(leading: const Icon(Icons.restore_rounded, color: Colors.teal, size: 28), title: const Text('استعادة البيانات (Restore)'), subtitle: const Text('استرجاع بياناتك من ملف النسخ الاحتياطي'), onTap: () => appData.importSecureBackup()), const Divider(),
       SwitchListTile(secondary: const Icon(Icons.language_rounded, color: Colors.blue, size: 28), title: const Text('English / العربية'), value: lang == 'en', onChanged: (_) => appData.toggleLanguage()),
       SwitchListTile(secondary: const Icon(Icons.fingerprint_rounded, color: Color(0xFF10B981), size: 28), title: const Text('البصمة / Biometrics'), activeColor: const Color(0xFF10B981), value: appData.isBiometricEnabled, onChanged: (v) => appData.toggleBiometric(v)),
       SwitchListTile(secondary: const Icon(Icons.dark_mode_rounded, size: 28), title: const Text('الوضع الداكن / Dark Mode'), activeColor: const Color(0xFF10B981), value: appData.isDarkMode, onChanged: (v) => appData.toggleTheme()),
