@@ -14,11 +14,11 @@ dependencies:
   permission_handler: ^11.3.0
   flutter_sms_inbox: ^1.0.3
   local_auth: ^3.0.2
-  pdf: ^3.13.0
-  printing: ^5.15.0
+  pdf: any
+  printing: any
   intl: ^0.20.3
-  file_picker: ^12.3.0
-  share_plus: ^13.3.0
+  file_picker: ^8.0.0
+  share_plus: any
 
 dev_dependencies:
   flutter_test:
