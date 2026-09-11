@@ -12,6 +12,7 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'institutions_data.dart';
+import 'package:intl/intl.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -22,14 +23,12 @@ void main() async {
 class AppStrings {
   static Map<String, Map<String, String>> t = {
     'ar': {
-      'wallet': 'المحفظة', 'installments': 'الأقساط', 'budgets': 'الميزانيات', 'settings': 'الإعدادات',
-      'total': 'الإجمالي:', 'sync': 'مزامنة الرسائل', 'add_cash': 'إضافة كاش', 'auth_msg': 'قم بتأكيد هويتك لفتح المحفظة',
-      'no_inst': 'لا توجد أقساط مسجلة حالياً', 'export_pdf': 'تصدير تقرير PDF رسمي', 'export_csv': 'تصدير كشف حساب إكسيل CSV'
+      'wallet': 'المحفظة', 'obligations': 'الالتزامات', 'budgets': 'الميزانيات', 'settings': 'الإعدادات',
+      'total': 'الإجمالي:', 'sync': 'مزامنة الرسائل', 'add_cash': 'إضافة كاش', 'auth_msg': 'قم بتأكيد هويتك لفتح المحفظة'
     },
     'en': {
-      'wallet': 'Wallet', 'installments': 'Installments', 'budgets': 'Budgets', 'settings': 'Settings',
-      'total': 'Total:', 'sync': 'Sync SMS', 'add_cash': 'Add Cash', 'auth_msg': 'Authenticate to open Wallet',
-      'no_inst': 'No installments recorded yet', 'export_pdf': 'Export Official PDF', 'export_csv': 'Export CSV Statement'
+      'wallet': 'Wallet', 'obligations': 'Obligations', 'budgets': 'Budgets', 'settings': 'Settings',
+      'total': 'Total:', 'sync': 'Sync SMS', 'add_cash': 'Add Cash', 'auth_msg': 'Authenticate to open Wallet'
     }
   };
   static String get(String lang, String key) => t[lang]?[key] ?? key;
@@ -45,12 +44,22 @@ class InstallmentModel {
   factory InstallmentModel.fromJson(Map<String, dynamic> j) => InstallmentModel(id: j['id'], title: j['title'], provider: j['provider'] ?? 'عام', monthlyAmount: (j['monthlyAmount'] as num).toDouble(), totalMonths: j['totalMonths'] ?? 1, paidMonths: j['paidMonths'] ?? 0, dueDayOfMonth: j['dueDayOfMonth'] ?? 1);
 }
 
+class SubscriptionModel {
+  final String id, title;
+  double amount;
+  int dueDayOfMonth;
+  SubscriptionModel({required this.id, required this.title, required this.amount, required this.dueDayOfMonth});
+  Map<String, dynamic> toJson() => {'id': id, 'title': title, 'amount': amount, 'dueDayOfMonth': dueDayOfMonth};
+  factory SubscriptionModel.fromJson(Map<String, dynamic> j) => SubscriptionModel(id: j['id'], title: j['title'], amount: (j['amount'] as num).toDouble(), dueDayOfMonth: j['dueDayOfMonth'] ?? 1);
+}
+
 class AppData extends ChangeNotifier {
   final SharedPreferences prefs;
   bool isDarkMode, isBiometricEnabled, isAuthenticated = false;
   String language;
   List<UserCardModel> userCards = [];
   List<InstallmentModel> installments = [];
+  List<SubscriptionModel> subscriptions = [];
   Map<String, double> categoryBudgets = {};
   Set<String> processedMessageFingerprints = {};
   final LocalAuthentication _auth = LocalAuthentication();
@@ -89,28 +98,36 @@ class AppData extends ChangeNotifier {
   }
 
   void _loadAll() {
-    final cJson = prefs.getString('cardsData_v33');
+    final cJson = prefs.getString('cardsData_v34') ?? prefs.getString('cardsData_v33');
     if (cJson != null && cJson.isNotEmpty) userCards = (jsonDecode(cJson) as List).map((e) => UserCardModel.fromJson(e)).toList();
     else { userCards = [UserCardModel(id: 'cash_wallet_main', bankId: 'cash', cardIdentifier: language == 'ar' ? 'محفظة النقود السائلة' : 'Cash Wallet', balance: 0.0, transactions: [])]; saveCards(); }
     
-    final iJson = prefs.getString('installments_v33');
+    final iJson = prefs.getString('installments_v34') ?? prefs.getString('installments_v33');
     if (iJson != null && iJson.isNotEmpty) installments = (jsonDecode(iJson) as List).map((e) => InstallmentModel.fromJson(e)).toList();
+
+    final sJson = prefs.getString('subscriptions_v34');
+    if (sJson != null && sJson.isNotEmpty) subscriptions = (jsonDecode(sJson) as List).map((e) => SubscriptionModel.fromJson(e)).toList();
     
-    final bJson = prefs.getString('catBudgets_v33');
+    final bJson = prefs.getString('catBudgets_v34') ?? prefs.getString('catBudgets_v33');
     if (bJson != null && bJson.isNotEmpty) categoryBudgets = (jsonDecode(bJson) as Map).map((k, v) => MapEntry(k.toString(), (v as num).toDouble()));
     else { categoryBudgets = {'فواتير ومشتريات': 3000.0, 'سوبرماركت': 4000.0, 'مواصلات': 1500.0, 'عام': 2000.0}; saveCategoryBudgets(); }
     
-    final fps = prefs.getStringList('processed_fps_v33');
+    final fps = prefs.getStringList('processed_fps_v34') ?? prefs.getStringList('processed_fps_v33');
     if (fps != null) processedMessageFingerprints = fps.toSet();
   }
 
-  void saveCards() { prefs.setString('cardsData_v33', jsonEncode(userCards.map((c) => c.toJson()).toList())); prefs.setStringList('processed_fps_v33', processedMessageFingerprints.toList()); notifyListeners(); }
-  void saveInstallments() { prefs.setString('installments_v33', jsonEncode(installments.map((i) => i.toJson()).toList())); notifyListeners(); }
-  void saveCategoryBudgets() { prefs.setString('catBudgets_v33', jsonEncode(categoryBudgets)); notifyListeners(); }
+  void saveCards() { prefs.setString('cardsData_v34', jsonEncode(userCards.map((c) => c.toJson()).toList())); prefs.setStringList('processed_fps_v34', processedMessageFingerprints.toList()); notifyListeners(); }
+  void saveInstallments() { prefs.setString('installments_v34', jsonEncode(installments.map((i) => i.toJson()).toList())); notifyListeners(); }
+  void saveSubscriptions() { prefs.setString('subscriptions_v34', jsonEncode(subscriptions.map((i) => i.toJson()).toList())); notifyListeners(); }
+  void saveCategoryBudgets() { prefs.setString('catBudgets_v34', jsonEncode(categoryBudgets)); notifyListeners(); }
 
   void addInstallment(String title, String provider, double monthly, int months, int dueDay) { installments.add(InstallmentModel(id: DateTime.now().millisecondsSinceEpoch.toString(), title: title, provider: provider, monthlyAmount: monthly, totalMonths: months, paidMonths: 0, dueDayOfMonth: dueDay)); saveInstallments(); }
   void markInstallmentPaid(String id) { final inst = installments.firstWhere((i) => i.id == id); if (inst.paidMonths < inst.totalMonths) { inst.paidMonths++; saveInstallments(); } }
   void deleteInstallment(String id) { installments.removeWhere((i) => i.id == id); saveInstallments(); }
+  
+  void addSubscription(String title, double amount, int dueDay) { subscriptions.add(SubscriptionModel(id: DateTime.now().millisecondsSinceEpoch.toString(), title: title, amount: amount, dueDayOfMonth: dueDay)); saveSubscriptions(); }
+  void deleteSubscription(String id) { subscriptions.removeWhere((i) => i.id == id); saveSubscriptions(); }
+
   void editCardName(String cardId, String newName) { userCards.firstWhere((c) => c.id == cardId).cardIdentifier = newName; saveCards(); }
   void deleteCard(String cardId) { if (cardId != 'cash_wallet_main') { userCards.removeWhere((c) => c.id == cardId); saveCards(); } }
   
@@ -170,7 +187,22 @@ class AppData extends ChangeNotifier {
     }
 
     String title = isIncome ? 'استلام من $extractedName' : 'دفع لـ $extractedName';
+    
+    // التصنيف التلقائي الذكي للمتاجر
     String category = isIncome ? 'تحويلات' : 'فواتير ومشتريات';
+    final lowerName = extractedName.toLowerCase();
+    if (!isIncome) {
+      if (RegExp(r'(uber|careem|indrive|ديدي|اوبر|كريم|مواصلات|قطار)').hasMatch(lowerName)) {
+        category = 'مواصلات';
+        if (!categoryBudgets.containsKey('مواصلات')) setCategoryBudget('مواصلات', 1500.0);
+      } else if (RegExp(r'(carrefour|kazyon|spinneys|hyper|بيم|كارفور|كازيون|سوبرماركت|خير زمان)').hasMatch(lowerName)) {
+        category = 'سوبرماركت';
+        if (!categoryBudgets.containsKey('سوبرماركت')) setCategoryBudget('سوبرماركت', 4000.0);
+      } else if (RegExp(r'(vodafone|orange|etisalat|we|فودافون|اورانج|اتصالات|فاتورة|انترنت)').hasMatch(lowerName)) {
+        category = 'فواتير ومشتريات';
+      }
+    }
+
     final amtMatch = RegExp(r'(\d+(?:\.\d{1,2})?)\s*(?:جنية|جنيه|EGP|LE)').firstMatch(text) ?? RegExp(r'(?:مبلغ|قيمة)\s*(\d+(?:\.\d{1,2})?)').firstMatch(text);
     
     if (amtMatch != null) {
@@ -233,10 +265,11 @@ class AppData extends ChangeNotifier {
   Future<void> exportSecureBackup() async {
     try {
       final allData = {
-        'cards': prefs.getString('cardsData_v33'),
-        'installments': prefs.getString('installments_v33'),
-        'budgets': prefs.getString('catBudgets_v33'),
-        'fingerprints': prefs.getStringList('processed_fps_v33'),
+        'cards': prefs.getString('cardsData_v34'),
+        'installments': prefs.getString('installments_v34'),
+        'subscriptions': prefs.getString('subscriptions_v34'),
+        'budgets': prefs.getString('catBudgets_v34'),
+        'fingerprints': prefs.getStringList('processed_fps_v34'),
       };
       final jsonStr = jsonEncode(allData);
       final bytes = utf8.encode(jsonStr);
@@ -258,10 +291,11 @@ class AppData extends ChangeNotifier {
         final jsonStr = utf8.decode(bytes);
         final Map<String, dynamic> data = jsonDecode(jsonStr);
 
-        if (data.containsKey('cards') && data['cards'] != null) prefs.setString('cardsData_v33', data['cards']);
-        if (data.containsKey('installments') && data['installments'] != null) prefs.setString('installments_v33', data['installments']);
-        if (data.containsKey('budgets') && data['budgets'] != null) prefs.setString('catBudgets_v33', data['budgets']);
-        if (data.containsKey('fingerprints') && data['fingerprints'] != null) prefs.setStringList('processed_fps_v33', List<String>.from(data['fingerprints']));
+        if (data.containsKey('cards') && data['cards'] != null) prefs.setString('cardsData_v34', data['cards']);
+        if (data.containsKey('installments') && data['installments'] != null) prefs.setString('installments_v34', data['installments']);
+        if (data.containsKey('subscriptions') && data['subscriptions'] != null) prefs.setString('subscriptions_v34', data['subscriptions']);
+        if (data.containsKey('budgets') && data['budgets'] != null) prefs.setString('catBudgets_v34', data['budgets']);
+        if (data.containsKey('fingerprints') && data['fingerprints'] != null) prefs.setStringList('processed_fps_v34', List<String>.from(data['fingerprints']));
         
         _loadAll();
       }
@@ -329,20 +363,23 @@ class _MainLayoutScreenState extends State<MainLayoutScreen> {
     super.initState(); 
     WidgetsBinding.instance.addPostFrameCallback((_) { 
       widget.appData.initializePermissions(); 
-      _checkInstallmentReminders();
+      _checkReminders();
     }); 
   }
 
-  void _checkInstallmentReminders() {
+  void _checkReminders() {
     if (_hasCheckedReminders) return;
     _hasCheckedReminders = true;
     final today = DateTime.now().day;
-    final dueInstallments = widget.appData.installments.where((i) => i.paidMonths < i.totalMonths && (i.dueDayOfMonth - today).abs() <= 3).toList();
     
-    if (dueInstallments.isNotEmpty) {
+    final dueInstallments = widget.appData.installments.where((i) => i.paidMonths < i.totalMonths && (i.dueDayOfMonth - today).abs() <= 3).toList();
+    final dueSubs = widget.appData.subscriptions.where((s) => (s.dueDayOfMonth - today).abs() <= 3).toList();
+    
+    final totalDue = dueInstallments.length + dueSubs.length;
+    if (totalDue > 0) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('تنبيه: لديك ${dueInstallments.length} أقساط يقترب موعد سدادها قريباً!'),
+          content: Text('تنبيه: لديك $totalDue التزامات مالية (أقساط/اشتراكات) يقترب موعد سدادها!'),
           backgroundColor: Colors.amber.shade800,
           duration: const Duration(seconds: 5),
         )
@@ -351,13 +388,13 @@ class _MainLayoutScreenState extends State<MainLayoutScreen> {
   }
 
   @override Widget build(BuildContext context) {
-    final pages = [AppleWalletScreen(appData: widget.appData), InstallmentsView(appData: widget.appData), CategoryBudgetsView(appData: widget.appData), SettingsTabView(appData: widget.appData)];
+    final pages = [AppleWalletScreen(appData: widget.appData), ObligationsView(appData: widget.appData), CategoryBudgetsView(appData: widget.appData), SettingsTabView(appData: widget.appData)];
     final lang = widget.appData.language;
     return Scaffold(
       body: IndexedStack(index: _tab, children: pages),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _tab, onTap: (i) => setState(() => _tab = i), type: BottomNavigationBarType.fixed, selectedItemColor: const Color(0xFF10B981), unselectedItemColor: Colors.grey, backgroundColor: widget.appData.isDarkMode ? const Color(0xFF121212) : Colors.white, elevation: 10,
-        items: [BottomNavigationBarItem(icon: const Icon(Icons.account_balance_wallet_rounded), label: AppStrings.get(lang, 'wallet')), BottomNavigationBarItem(icon: const Icon(Icons.credit_score_rounded), label: AppStrings.get(lang, 'installments')), BottomNavigationBarItem(icon: const Icon(Icons.pie_chart_rounded), label: AppStrings.get(lang, 'budgets')), BottomNavigationBarItem(icon: const Icon(Icons.settings_rounded), label: AppStrings.get(lang, 'settings'))],
+        items: [BottomNavigationBarItem(icon: const Icon(Icons.account_balance_wallet_rounded), label: AppStrings.get(lang, 'wallet')), BottomNavigationBarItem(icon: const Icon(Icons.event_note_rounded), label: AppStrings.get(lang, 'obligations')), BottomNavigationBarItem(icon: const Icon(Icons.pie_chart_rounded), label: AppStrings.get(lang, 'budgets')), BottomNavigationBarItem(icon: const Icon(Icons.settings_rounded), label: AppStrings.get(lang, 'settings'))],
       ),
       floatingActionButton: _tab == 0 ? FloatingActionButton.extended(backgroundColor: const Color(0xFF10B981), icon: const Icon(Icons.add_rounded, color: Colors.white), label: Text(AppStrings.get(lang, 'add_cash'), style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)), onPressed: () => _showManualCashSheet(context)) : null,
     );
@@ -371,122 +408,117 @@ class _MainLayoutScreenState extends State<MainLayoutScreen> {
   }
 }
 
-class SearchTransactionsScreen extends StatefulWidget {
+// ---------------- شاشة التحليلات التاريخية المقارنة ----------------
+class HistoricalAnalyticsScreen extends StatelessWidget {
   final AppData appData;
-  const SearchTransactionsScreen({super.key, required this.appData});
-
-  @override
-  State<SearchTransactionsScreen> createState() => _SearchTransactionsScreenState();
-}
-
-class _SearchTransactionsScreenState extends State<SearchTransactionsScreen> {
-  String _query = '';
-  DateTime? _startDate;
-  DateTime? _endDate;
-
-  DateTime? _parseDate(String dateStr) {
-    try {
-      final match = RegExp(r'(\d{1,2})/(\d{1,2})/(\d{4})').firstMatch(dateStr);
-      if (match != null) {
-        return DateTime(int.parse(match.group(3)!), int.parse(match.group(2)!), int.parse(match.group(1)!));
-      }
-    } catch (_) {}
-    return null;
-  }
+  const HistoricalAnalyticsScreen({super.key, required this.appData});
 
   @override
   Widget build(BuildContext context) {
-    final isDark = widget.appData.isDarkMode;
-    final allTxs = widget.appData.userCards.expand((c) => c.transactions.map((t) => {'card': c, 'tx': t})).toList();
+    final isDark = appData.isDarkMode;
     
-    final filtered = allTxs.where((item) {
-      final tx = item['tx'] as TransactionItem;
-      bool matchesQuery = _query.isEmpty || 
-                          tx.name.toLowerCase().contains(_query.toLowerCase()) || 
-                          tx.category.toLowerCase().contains(_query.toLowerCase()) || 
-                          (tx.subtitle != null && tx.subtitle!.toLowerCase().contains(_query.toLowerCase()));
-      bool matchesDate = true;
-      if (_startDate != null && _endDate != null) {
-        final d = _parseDate(tx.date);
-        if (d != null) {
-          matchesDate = d.isAfter(_startDate!.subtract(const Duration(days: 1))) && d.isBefore(_endDate!.add(const Duration(days: 1)));
-        } else {
-          matchesDate = false;
+    // حساب المصروفات لآخر 6 شهور
+    final now = DateTime.now();
+    List<Map<String, dynamic>> monthlyData = [];
+    double maxAmount = 0.0;
+
+    for (int i = 5; i >= 0; i--) {
+      final monthDate = DateTime(now.year, now.month - i, 1);
+      final monthStr = '${monthDate.month}/${monthDate.year}';
+      final monthLabel = DateFormat('MMM').format(monthDate);
+      
+      double monthTotal = 0.0;
+      for (var c in appData.userCards) {
+        for (var tx in c.transactions) {
+          if (!tx.isIncome && tx.date.contains('/$monthStr') || tx.date.endsWith(monthStr)) {
+            monthTotal += tx.amount;
+          }
         }
       }
-      return matchesQuery && matchesDate;
-    }).toList();
+      if (monthTotal > maxAmount) maxAmount = monthTotal;
+      monthlyData.add({'label': monthLabel, 'total': monthTotal});
+    }
 
     return Scaffold(
       appBar: AppBar(
+        title: const Text('التحليلات والمقارنات', style: TextStyle(fontWeight: FontWeight.bold)),
         backgroundColor: isDark ? const Color(0xFF121212) : Colors.white,
         elevation: 0,
         iconTheme: IconThemeData(color: isDark ? Colors.white : Colors.black),
-        title: TextField(
-          autofocus: true,
-          style: TextStyle(color: isDark ? Colors.white : Colors.black),
-          decoration: const InputDecoration(
-            hintText: 'ابحث عن متجر، شخص، أو تصنيف...',
-            hintStyle: TextStyle(color: Colors.grey, fontSize: 14),
-            border: InputBorder.none,
-          ),
-          onChanged: (v) => setState(() => _query = v),
-        ),
-        actions: [
-          IconButton(
-            icon: Icon(Icons.date_range_rounded, color: _startDate != null ? const Color(0xFF10B981) : Colors.grey),
-            onPressed: () async {
-              final res = await showDateRangePicker(
-                context: context,
-                firstDate: DateTime(2020),
-                lastDate: DateTime(2030),
-                builder: (ctx, child) => Theme(data: ThemeData.light().copyWith(colorScheme: const ColorScheme.light(primary: Color(0xFF10B981))), child: child!),
-              );
-              if (res != null) setState(() { _startDate = res.start; _endDate = res.end; });
-            },
-          ),
-          if (_startDate != null)
-            IconButton(
-              icon: const Icon(Icons.clear, color: Colors.redAccent),
-              onPressed: () => setState(() { _startDate = null; _endDate = null; }),
-            )
-        ],
+        titleTextStyle: TextStyle(color: isDark ? Colors.white : Colors.black, fontSize: 18),
       ),
-      body: filtered.isEmpty 
-        ? const Center(child: Text('لا توجد معاملات مطابقة للبحث', style: TextStyle(color: Colors.grey)))
-        : ListView.builder(
-            padding: const EdgeInsets.all(16),
-            itemCount: filtered.length,
-            itemBuilder: (ctx, i) {
-              final tx = filtered[i]['tx'] as TransactionItem;
-              final card = filtered[i]['card'] as UserCardModel;
-              return Container(
-                margin: const EdgeInsets.only(bottom: 12), padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(color: isDark ? const Color(0xFF1C1C1E) : Colors.white, borderRadius: BorderRadius.circular(16)),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(tx.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-                          if (tx.subtitle != null && tx.subtitle!.isNotEmpty) ...[
-                            const SizedBox(height: 2),
-                            Text(tx.subtitle!, style: TextStyle(color: Colors.blueAccent.withOpacity(0.8), fontSize: 11, fontWeight: FontWeight.w500)),
-                          ],
-                          const SizedBox(height: 2),
-                          Text('${tx.category} • ${tx.date} • ${card.bank.name}', style: const TextStyle(color: Colors.grey, fontSize: 11)),
-                        ],
+      body: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('إجمالي المصروفات (آخر 6 أشهر)', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 40),
+            Expanded(
+              child: BarChart(
+                BarChartData(
+                  alignment: BarChartAlignment.spaceAround,
+                  maxY: maxAmount == 0 ? 100 : maxAmount * 1.2,
+                  barTouchData: BarTouchData(
+                    touchTooltipData: BarTouchTooltipData(
+                      getTooltipColor: (_) => Colors.blueGrey,
+                      getTooltipItem: (group, groupIndex, rod, rodIndex) => BarTooltipItem('${rod.toY.toStringAsFixed(0)} EGP', const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                    ),
+                  ),
+                  titlesData: FlTitlesData(
+                    show: true,
+                    bottomTitles: AxisTitles(
+                      sideTitles: SideTitles(
+                        showTitles: true,
+                        getTitlesWidget: (value, meta) => Padding(padding: const EdgeInsets.only(top: 8.0), child: Text(monthlyData[value.toInt()]['label'])),
                       ),
                     ),
-                    Text('${tx.isIncome ? '+' : '-'}${tx.amount.toStringAsFixed(0)}', style: TextStyle(color: tx.isIncome ? Colors.green : Colors.redAccent, fontWeight: FontWeight.bold, fontSize: 16)),
-                  ],
+                    leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                    topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                    rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                  ),
+                  borderData: FlBorderData(show: false),
+                  gridData: const FlGridData(show: false),
+                  barGroups: monthlyData.asMap().entries.map((e) {
+                    return BarChartGroupData(
+                      x: e.key,
+                      barRods: [BarChartRodData(toY: e.value['total'], color: const Color(0xFF10B981), width: 20, borderRadius: BorderRadius.circular(4))],
+                    );
+                  }).toList(),
                 ),
-              );
-            },
-          ),
+              ),
+            ),
+            const SizedBox(height: 20),
+            const Text('نصيحة ذكية:', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blueAccent)),
+            const SizedBox(height: 8),
+            Text('الرسم البياني يساعدك في اكتشاف الشهور التي زادت فيها مصاريفك عن المعدل الطبيعي لتتمكن من ضبط ميزانيتك في المستقبل.', style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
+          ],
+        ),
+      ),
     );
+  }
+}
+
+class SearchTransactionsScreen extends StatefulWidget {
+  final AppData appData;
+  const SearchTransactionsScreen({super.key, required this.appData});
+  @override State<SearchTransactionsScreen> createState() => _SearchTransactionsScreenState();
+}
+
+class _SearchTransactionsScreenState extends State<SearchTransactionsScreen> {
+  String _query = ''; DateTime? _startDate; DateTime? _endDate;
+  DateTime? _parseDate(String dateStr) { try { final match = RegExp(r'(\d{1,2})/(\d{1,2})/(\d{4})').firstMatch(dateStr); if (match != null) return DateTime(int.parse(match.group(3)!), int.parse(match.group(2)!), int.parse(match.group(1)!)); } catch (_) {} return null; }
+  @override Widget build(BuildContext context) {
+    final isDark = widget.appData.isDarkMode;
+    final allTxs = widget.appData.userCards.expand((c) => c.transactions.map((t) => {'card': c, 'tx': t})).toList();
+    final filtered = allTxs.where((item) {
+      final tx = item['tx'] as TransactionItem;
+      bool matchesQuery = _query.isEmpty || tx.name.toLowerCase().contains(_query.toLowerCase()) || tx.category.toLowerCase().contains(_query.toLowerCase()) || (tx.subtitle != null && tx.subtitle!.toLowerCase().contains(_query.toLowerCase()));
+      bool matchesDate = true;
+      if (_startDate != null && _endDate != null) { final d = _parseDate(tx.date); if (d != null) { matchesDate = d.isAfter(_startDate!.subtract(const Duration(days: 1))) && d.isBefore(_endDate!.add(const Duration(days: 1))); } else { matchesDate = false; } }
+      return matchesQuery && matchesDate;
+    }).toList();
+    return Scaffold(appBar: AppBar(backgroundColor: isDark ? const Color(0xFF121212) : Colors.white, elevation: 0, iconTheme: IconThemeData(color: isDark ? Colors.white : Colors.black), title: TextField(autofocus: true, style: TextStyle(color: isDark ? Colors.white : Colors.black), decoration: const InputDecoration(hintText: 'ابحث عن متجر، شخص، أو تصنيف...', hintStyle: TextStyle(color: Colors.grey, fontSize: 14), border: InputBorder.none), onChanged: (v) => setState(() => _query = v)), actions: [IconButton(icon: Icon(Icons.date_range_rounded, color: _startDate != null ? const Color(0xFF10B981) : Colors.grey), onPressed: () async { final res = await showDateRangePicker(context: context, firstDate: DateTime(2020), lastDate: DateTime(2030), builder: (ctx, child) => Theme(data: ThemeData.light().copyWith(colorScheme: const ColorScheme.light(primary: Color(0xFF10B981))), child: child!)); if (res != null) setState(() { _startDate = res.start; _endDate = res.end; }); }), if (_startDate != null) IconButton(icon: const Icon(Icons.clear, color: Colors.redAccent), onPressed: () => setState(() { _startDate = null; _endDate = null; }))]), body: filtered.isEmpty ? const Center(child: Text('لا توجد معاملات مطابقة للبحث', style: TextStyle(color: Colors.grey))) : ListView.builder(padding: const EdgeInsets.all(16), itemCount: filtered.length, itemBuilder: (ctx, i) { final tx = filtered[i]['tx'] as TransactionItem; final card = filtered[i]['card'] as UserCardModel; return Container(margin: const EdgeInsets.only(bottom: 12), padding: const EdgeInsets.all(16), decoration: BoxDecoration(color: isDark ? const Color(0xFF1C1C1E) : Colors.white, borderRadius: BorderRadius.circular(16)), child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(tx.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)), if (tx.subtitle != null && tx.subtitle!.isNotEmpty) ...[const SizedBox(height: 2), Text(tx.subtitle!, style: TextStyle(color: Colors.blueAccent.withOpacity(0.8), fontSize: 11, fontWeight: FontWeight.w500))], const SizedBox(height: 2), Text('${tx.category} • ${tx.date} • ${card.bank.name}', style: const TextStyle(color: Colors.grey, fontSize: 11))])), Text('${tx.isIncome ? '+' : '-'}${tx.amount.toStringAsFixed(0)}', style: TextStyle(color: tx.isIncome ? Colors.green : Colors.redAccent, fontWeight: FontWeight.bold, fontSize: 16))])); }));
   }
 }
 
@@ -519,94 +551,67 @@ class _AppleWalletScreenState extends State<AppleWalletScreen> {
   }
 
   Widget _buildStackedView(List<UserCardModel> cards) => SingleChildScrollView(padding: const EdgeInsets.only(bottom: 40), child: SizedBox(height: 220.0 + (cards.length - 1) * 70.0, child: Stack(clipBehavior: Clip.none, children: List.generate(cards.length, (i) => Positioned(top: i * 70.0, left: 16, right: 16, child: GestureDetector(onTap: () => setState(() => _expandedIndex = i), onLongPress: () => _showCardOptions(cards[i]), child: _buildCardDesign(cards[i])))))));
-  
-  Widget _buildExpandedView(UserCardModel card) => Column(children: [
-    Padding(padding: const EdgeInsets.symmetric(horizontal: 16), child: GestureDetector(onTap: () => setState(() => _expandedIndex = null), onLongPress: () => _showCardOptions(card), child: _buildCardDesign(card))), 
-    TextButton.icon(onPressed: () => setState(() => _expandedIndex = null), icon: const Icon(Icons.keyboard_arrow_up_rounded, color: Colors.grey), label: const Text('طي الكارت', style: TextStyle(color: Colors.grey))), 
-    Expanded(child: ListView.builder(padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8), itemCount: card.transactions.length, itemBuilder: (ctx, idx) { 
-      final tx = card.transactions[idx]; 
-      return Container(margin: const EdgeInsets.only(bottom: 12), padding: const EdgeInsets.all(16), decoration: BoxDecoration(color: widget.appData.isDarkMode ? const Color(0xFF1C1C1E) : Colors.white, borderRadius: BorderRadius.circular(16)), child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(tx.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)), 
-          if (tx.subtitle != null && tx.subtitle!.isNotEmpty) ...[
-            const SizedBox(height: 2),
-            Text(tx.subtitle!, style: TextStyle(color: Colors.blueAccent.withOpacity(0.8), fontSize: 11, fontWeight: FontWeight.w500)),
-          ],
-          const SizedBox(height: 2),
-          Text('${tx.category} • ${tx.date}', style: const TextStyle(color: Colors.grey, fontSize: 11))
-        ])), 
-        Text('${tx.isIncome ? '+' : '-'}${tx.amount.toStringAsFixed(0)}', style: TextStyle(color: tx.isIncome ? Colors.green : Colors.redAccent, fontWeight: FontWeight.bold, fontSize: 16))
-      ])); 
-    }))
-  ]);
-  
+  Widget _buildExpandedView(UserCardModel card) => Column(children: [Padding(padding: const EdgeInsets.symmetric(horizontal: 16), child: GestureDetector(onTap: () => setState(() => _expandedIndex = null), onLongPress: () => _showCardOptions(card), child: _buildCardDesign(card))), TextButton.icon(onPressed: () => setState(() => _expandedIndex = null), icon: const Icon(Icons.keyboard_arrow_up_rounded, color: Colors.grey), label: const Text('طي الكارت', style: TextStyle(color: Colors.grey))), Expanded(child: ListView.builder(padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8), itemCount: card.transactions.length, itemBuilder: (ctx, idx) { final tx = card.transactions[idx]; return Container(margin: const EdgeInsets.only(bottom: 12), padding: const EdgeInsets.all(16), decoration: BoxDecoration(color: widget.appData.isDarkMode ? const Color(0xFF1C1C1E) : Colors.white, borderRadius: BorderRadius.circular(16)), child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(tx.name, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)), if (tx.subtitle != null && tx.subtitle!.isNotEmpty) ...[const SizedBox(height: 2), Text(tx.subtitle!, style: TextStyle(color: Colors.blueAccent.withOpacity(0.8), fontSize: 11, fontWeight: FontWeight.w500))], const SizedBox(height: 2), Text('${tx.category} • ${tx.date}', style: const TextStyle(color: Colors.grey, fontSize: 11))])), Text('${tx.isIncome ? '+' : '-'}${tx.amount.toStringAsFixed(0)}', style: TextStyle(color: tx.isIncome ? Colors.green : Colors.redAccent, fontWeight: FontWeight.bold, fontSize: 16))])); }))]);
   Widget _buildCardDesign(UserCardModel card) {
     return Container(
       height: 220, padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(colors: card.bank.gradientColors, begin: Alignment.topLeft, end: Alignment.bottomRight),
-        borderRadius: BorderRadius.circular(24),
-        boxShadow: [BoxShadow(color: card.bank.gradientColors.last.withOpacity(0.4), blurRadius: 15, offset: const Offset(0, 8))],
-      ),
-      child: Stack(
-        children: [
-          if (card.bank.logoPath.isNotEmpty)
-            Positioned(
-              left: 0, top: 0,
-              child: Opacity(
-                opacity: 0.15,
-                child: Image.asset(card.bank.logoPath, width: 120, height: 120, fit: BoxFit.contain, errorBuilder: (c, e, s) => const SizedBox()),
-              ),
-            ),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(card.bank.name, style: TextStyle(color: card.bank.textColor, fontSize: 18, fontWeight: FontWeight.bold)),
-                  if (card.bank.logoPath.isNotEmpty)
-                    Container(
-                      padding: const EdgeInsets.all(6),
-                      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8)),
-                      child: Image.asset(card.bank.logoPath, width: 30, height: 30, fit: BoxFit.contain, errorBuilder: (c, e, s) => Icon(Icons.account_balance, color: card.bank.gradientColors.first)),
-                    ),
-                ],
-              ),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('الرصيد المتاح', style: TextStyle(color: card.bank.textColor.withOpacity(0.8), fontSize: 12)),
-                  Text('${card.balance.toStringAsFixed(2)} EGP', style: TextStyle(color: card.bank.textColor, fontSize: 28, fontWeight: FontWeight.w900)),
-                ],
-              ),
-              Text(card.cardIdentifier, style: TextStyle(color: card.bank.textColor.withOpacity(0.9), fontSize: 16, letterSpacing: 2)),
-            ],
-          ),
-        ],
-      ),
+      decoration: BoxDecoration(gradient: LinearGradient(colors: card.bank.gradientColors, begin: Alignment.topLeft, end: Alignment.bottomRight), borderRadius: BorderRadius.circular(24), boxShadow: [BoxShadow(color: card.bank.gradientColors.last.withOpacity(0.4), blurRadius: 15, offset: const Offset(0, 8))]),
+      child: Stack(children: [if (card.bank.logoPath.isNotEmpty) Positioned(left: 0, top: 0, child: Opacity(opacity: 0.15, child: Image.asset(card.bank.logoPath, width: 120, height: 120, fit: BoxFit.contain, errorBuilder: (c, e, s) => const SizedBox()))), Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text(card.bank.name, style: TextStyle(color: card.bank.textColor, fontSize: 18, fontWeight: FontWeight.bold)), if (card.bank.logoPath.isNotEmpty) Container(padding: const EdgeInsets.all(6), decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(8)), child: Image.asset(card.bank.logoPath, width: 30, height: 30, fit: BoxFit.contain, errorBuilder: (c, e, s) => Icon(Icons.account_balance, color: card.bank.gradientColors.first)))]), Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text('الرصيد المتاح', style: TextStyle(color: card.bank.textColor.withOpacity(0.8), fontSize: 12)), Text('${card.balance.toStringAsFixed(2)} EGP', style: TextStyle(color: card.bank.textColor, fontSize: 28, fontWeight: FontWeight.w900))]), Text(card.cardIdentifier, style: TextStyle(color: card.bank.textColor.withOpacity(0.9), fontSize: 16, letterSpacing: 2))])]),
     );
   }
 }
 
-class InstallmentsView extends StatefulWidget {
-  final AppData appData; const InstallmentsView({super.key, required this.appData});
-  @override State<InstallmentsView> createState() => _InstallmentsViewState();
+// ---------------- واجهة الالتزامات (الأقساط + الاشتراكات) ----------------
+class ObligationsView extends StatefulWidget {
+  final AppData appData; const ObligationsView({super.key, required this.appData});
+  @override State<ObligationsView> createState() => _ObligationsViewState();
 }
 
-class _InstallmentsViewState extends State<InstallmentsView> {
-  void _showAddSheet() {
+class _ObligationsViewState extends State<ObligationsView> {
+  bool _showInstallments = true;
+
+  void _showAddInstallmentSheet() {
     final titleCtrl = TextEditingController(); final provCtrl = TextEditingController(); final amtCtrl = TextEditingController(); final monthsCtrl = TextEditingController(); final dueDayCtrl = TextEditingController();
-    showModalBottomSheet(context: context, isScrollControlled: true, shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))), builder: (ctx) => Padding(padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom, top: 24, left: 24, right: 24), child: Column(mainAxisSize: MainAxisSize.min, children: [TextField(controller: titleCtrl, decoration: const InputDecoration(labelText: 'اسم السلعة', border: OutlineInputBorder())), const SizedBox(height: 12), TextField(controller: provCtrl, decoration: const InputDecoration(labelText: 'جهة التقسيط', border: OutlineInputBorder())), const SizedBox(height: 12), Row(children: [Expanded(child: TextField(controller: amtCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'القسط', border: OutlineInputBorder()))), const SizedBox(width: 12), Expanded(child: TextField(controller: monthsCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'الشهور', border: OutlineInputBorder())))]), const SizedBox(height: 12), TextField(controller: dueDayCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'يوم الاستحقاق (مثال: 1 لـ يوم 1 في الشهر)', border: OutlineInputBorder())), const SizedBox(height: 20), ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF10B981)), onPressed: () { final amt = double.tryParse(amtCtrl.text); final m = int.tryParse(monthsCtrl.text); final d = int.tryParse(dueDayCtrl.text) ?? 1; if (amt != null && m != null && titleCtrl.text.isNotEmpty) { widget.appData.addInstallment(titleCtrl.text, provCtrl.text.isEmpty ? 'جهة تقسيط' : provCtrl.text, amt, m, d); Navigator.pop(ctx); } }, child: const Text('حفظ القسط', style: TextStyle(color: Colors.white))), const SizedBox(height: 20)])));
+    showModalBottomSheet(context: context, isScrollControlled: true, shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))), builder: (ctx) => Padding(padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom, top: 24, left: 24, right: 24), child: Column(mainAxisSize: MainAxisSize.min, children: [TextField(controller: titleCtrl, decoration: const InputDecoration(labelText: 'اسم السلعة/القسط', border: OutlineInputBorder())), const SizedBox(height: 12), TextField(controller: provCtrl, decoration: const InputDecoration(labelText: 'جهة التقسيط', border: OutlineInputBorder())), const SizedBox(height: 12), Row(children: [Expanded(child: TextField(controller: amtCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'القسط الشهري', border: OutlineInputBorder()))), const SizedBox(width: 12), Expanded(child: TextField(controller: monthsCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'عدد الشهور', border: OutlineInputBorder())))]), const SizedBox(height: 12), TextField(controller: dueDayCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'يوم الاستحقاق (من 1 إلى 31)', border: OutlineInputBorder())), const SizedBox(height: 20), ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF10B981)), onPressed: () { final amt = double.tryParse(amtCtrl.text); final m = int.tryParse(monthsCtrl.text); final d = int.tryParse(dueDayCtrl.text) ?? 1; if (amt != null && m != null && titleCtrl.text.isNotEmpty) { widget.appData.addInstallment(titleCtrl.text, provCtrl.text.isEmpty ? 'جهة تقسيط' : provCtrl.text, amt, m, d); Navigator.pop(ctx); } }, child: const Text('حفظ القسط', style: TextStyle(color: Colors.white))), const SizedBox(height: 20)])));
   }
+
+  void _showAddSubscriptionSheet() {
+    final titleCtrl = TextEditingController(); final amtCtrl = TextEditingController(); final dueDayCtrl = TextEditingController();
+    showModalBottomSheet(context: context, isScrollControlled: true, shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))), builder: (ctx) => Padding(padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom, top: 24, left: 24, right: 24), child: Column(mainAxisSize: MainAxisSize.min, children: [TextField(controller: titleCtrl, decoration: const InputDecoration(labelText: 'اسم الاشتراك (مثال: جيم، إنترنت)', border: OutlineInputBorder())), const SizedBox(height: 12), TextField(controller: amtCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'المبلغ الشهري', border: OutlineInputBorder())), const SizedBox(height: 12), TextField(controller: dueDayCtrl, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'يوم التجديد (من 1 إلى 31)', border: OutlineInputBorder())), const SizedBox(height: 20), ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF10B981)), onPressed: () { final amt = double.tryParse(amtCtrl.text); final d = int.tryParse(dueDayCtrl.text) ?? 1; if (amt != null && titleCtrl.text.isNotEmpty) { widget.appData.addSubscription(titleCtrl.text, amt, d); Navigator.pop(ctx); } }, child: const Text('حفظ الاشتراك', style: TextStyle(color: Colors.white))), const SizedBox(height: 20)])));
+  }
+
   @override Widget build(BuildContext context) {
     return SafeArea(child: Column(children: [
-      Padding(padding: const EdgeInsets.all(20), child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text(AppStrings.get(widget.appData.language, 'installments'), style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)), IconButton(icon: const Icon(Icons.add_circle_rounded, color: Color(0xFF10B981), size: 32), onPressed: _showAddSheet)])),
-      Expanded(child: widget.appData.installments.isEmpty ? Center(child: Text(AppStrings.get(widget.appData.language, 'no_inst'), style: const TextStyle(color: Colors.grey))) : ListView.builder(padding: const EdgeInsets.symmetric(horizontal: 16), itemCount: widget.appData.installments.length, itemBuilder: (ctx, i) {
-        final inst = widget.appData.installments[i]; final isDone = inst.paidMonths >= inst.totalMonths;
-        return Container(margin: const EdgeInsets.only(bottom: 16), padding: const EdgeInsets.all(20), decoration: BoxDecoration(color: widget.appData.isDarkMode ? const Color(0xFF1C1C1E) : Colors.white, borderRadius: BorderRadius.circular(20)), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(inst.title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)), Text('${inst.provider} • ${inst.monthlyAmount.toStringAsFixed(0)} ج.م / شهر (يوم ${inst.dueDayOfMonth})', style: const TextStyle(color: Colors.grey, fontSize: 13))]), IconButton(icon: const Icon(Icons.delete_outline, color: Colors.redAccent), onPressed: () => widget.appData.deleteInstallment(inst.id))]), const SizedBox(height: 16), LinearProgressIndicator(value: inst.progress, minHeight: 8, backgroundColor: Colors.grey.withOpacity(0.2), valueColor: AlwaysStoppedAnimation(isDone ? Colors.green : const Color(0xFF10B981))), const SizedBox(height: 12), Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text('تم سداد: ${inst.paidMonths} / ${inst.totalMonths} شهر', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)), if (!isDone) ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF10B981)), onPressed: () => widget.appData.markInstallmentPaid(inst.id), child: const Text('دفع قسط', style: TextStyle(color: Colors.white, fontSize: 12))) else const Text('مكتمل', style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold, fontSize: 12))])]));
-      }))
+      Padding(
+        padding: const EdgeInsets.all(20), 
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween, 
+          children: [
+            Text('الالتزامات', style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)), 
+            IconButton(icon: const Icon(Icons.add_circle_rounded, color: Color(0xFF10B981), size: 32), onPressed: _showInstallments ? _showAddInstallmentSheet : _showAddSubscriptionSheet)
+          ]
+        )
+      ),
+      Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          ChoiceChip(label: const Text('الأقساط'), selected: _showInstallments, onSelected: (v) => setState(() => _showInstallments = true), selectedColor: const Color(0xFF10B981).withOpacity(0.2)),
+          const SizedBox(width: 12),
+          ChoiceChip(label: const Text('الاشتراكات المتكررة'), selected: !_showInstallments, onSelected: (v) => setState(() => _showInstallments = false), selectedColor: const Color(0xFF10B981).withOpacity(0.2)),
+        ],
+      ),
+      const SizedBox(height: 10),
+      Expanded(
+        child: _showInstallments 
+        ? (widget.appData.installments.isEmpty ? const Center(child: Text('لا توجد أقساط مسجلة حالياً', style: TextStyle(color: Colors.grey))) : ListView.builder(padding: const EdgeInsets.symmetric(horizontal: 16), itemCount: widget.appData.installments.length, itemBuilder: (ctx, i) {
+            final inst = widget.appData.installments[i]; final isDone = inst.paidMonths >= inst.totalMonths;
+            return Container(margin: const EdgeInsets.only(bottom: 16), padding: const EdgeInsets.all(20), decoration: BoxDecoration(color: widget.appData.isDarkMode ? const Color(0xFF1C1C1E) : Colors.white, borderRadius: BorderRadius.circular(20)), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(inst.title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)), Text('${inst.provider} • ${inst.monthlyAmount.toStringAsFixed(0)} ج.م / شهر (يوم ${inst.dueDayOfMonth})', style: const TextStyle(color: Colors.grey, fontSize: 13))]), IconButton(icon: const Icon(Icons.delete_outline, color: Colors.redAccent), onPressed: () => widget.appData.deleteInstallment(inst.id))]), const SizedBox(height: 16), LinearProgressIndicator(value: inst.progress, minHeight: 8, backgroundColor: Colors.grey.withOpacity(0.2), valueColor: AlwaysStoppedAnimation(isDone ? Colors.green : const Color(0xFF10B981))), const SizedBox(height: 12), Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text('تم سداد: ${inst.paidMonths} / ${inst.totalMonths} شهر', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold)), if (!isDone) ElevatedButton(style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF10B981)), onPressed: () => widget.appData.markInstallmentPaid(inst.id), child: const Text('دفع قسط', style: TextStyle(color: Colors.white, fontSize: 12))) else const Text('مكتمل', style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold, fontSize: 12))])]));
+          }))
+        : (widget.appData.subscriptions.isEmpty ? const Center(child: Text('لا توجد اشتراكات مسجلة حالياً', style: TextStyle(color: Colors.grey))) : ListView.builder(padding: const EdgeInsets.symmetric(horizontal: 16), itemCount: widget.appData.subscriptions.length, itemBuilder: (ctx, i) {
+            final sub = widget.appData.subscriptions[i];
+            return Container(margin: const EdgeInsets.only(bottom: 16), padding: const EdgeInsets.all(20), decoration: BoxDecoration(color: widget.appData.isDarkMode ? const Color(0xFF1C1C1E) : Colors.white, borderRadius: BorderRadius.circular(20)), child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(sub.title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18)), const SizedBox(height: 4), Text('${sub.amount.toStringAsFixed(0)} ج.م / شهرياً • يتجدد يوم ${sub.dueDayOfMonth}', style: const TextStyle(color: Colors.grey, fontSize: 13))]), IconButton(icon: const Icon(Icons.delete_outline, color: Colors.redAccent), onPressed: () => widget.appData.deleteSubscription(sub.id))]));
+          }))
+      )
     ]));
   }
 }
@@ -640,7 +645,10 @@ class CategoryBudgetsView extends StatelessWidget {
     return SafeArea(child: Scaffold(
       floatingActionButton: FloatingActionButton.extended(backgroundColor: const Color(0xFF10B981), icon: const Icon(Icons.add, color: Colors.white), label: const Text('تصنيف جديد', style: TextStyle(color: Colors.white)), onPressed: () => _showAddCategorySheet(context)),
       body: Column(children: [
-        Padding(padding: const EdgeInsets.all(20), child: Align(alignment: Alignment.centerRight, child: Text(AppStrings.get(appData.language, 'budgets'), style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)))),
+        Padding(padding: const EdgeInsets.all(20), child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+          IconButton(icon: const Icon(Icons.bar_chart_rounded, color: Colors.blueAccent, size: 30), onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => HistoricalAnalyticsScreen(appData: appData)))),
+          Text(AppStrings.get(appData.language, 'budgets'), style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+        ])),
         if (chartSections.isNotEmpty) 
           SizedBox(height: 180, child: PieChart(PieChartData(sections: chartSections, centerSpaceRadius: 40, sectionsSpace: 2))),
         if (chartSections.isNotEmpty) const SizedBox(height: 20),
