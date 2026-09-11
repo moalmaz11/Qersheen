@@ -190,10 +190,10 @@ class AppData extends ChangeNotifier {
     final file = File('${Directory.systemTemp.path}/qersheen_report.csv'); await file.writeAsString(buffer.toString(), encoding: utf8); await Share.shareXFiles([XFile(file.path)], text: 'تقرير معاملات قرشين');
   }
 
-  // الدالة الجديدة لتصدير PDF بناءً على الحساب المختار
   Future<void> exportPdfReport({String? cardId}) async {
     final pdf = pw.Document(); 
-    final font = await PdfGoogleFonts.cairoRegular();
+    final fontRegular = await PdfGoogleFonts.cairoRegular();
+    final fontBold = await PdfGoogleFonts.cairoBold();
     double totalIn = 0.0, totalOut = 0.0;
     
     final cardsToExport = cardId == null ? userCards : userCards.where((c) => c.id == cardId).toList();
@@ -208,17 +208,23 @@ class AppData extends ChangeNotifier {
     final tableData = cardsToExport.expand((c) => c.transactions.map((t) => [t.name, '${t.isIncome ? '+' : '-'}${t.amount}', t.date])).toList();
 
     pdf.addPage(pw.MultiPage(
-      theme: pw.ThemeData.withFont(base: font), 
+      theme: pw.ThemeData.withFont(base: fontRegular, bold: fontBold), 
       textDirection: pw.TextDirection.rtl,
       build: (pw.Context context) => [
-        pw.Text(reportTitle, style: const pw.TextStyle(fontSize: 24)), 
+        pw.Text(reportTitle, style: pw.TextStyle(font: fontBold, fontSize: 24)), 
         pw.SizedBox(height: 20),
-        pw.Text('الدخل: $totalIn | المصروفات: $totalOut'), 
+        pw.Text('الدخل: $totalIn | المصروفات: $totalOut', style: pw.TextStyle(font: fontRegular, fontSize: 16)), 
         pw.SizedBox(height: 20),
         if (tableData.isNotEmpty)
-          pw.Table.fromTextArray(headers: ['المعاملة', 'المبلغ', 'التاريخ'], data: tableData)
+          pw.Table.fromTextArray(
+            headers: ['المعاملة', 'المبلغ', 'التاريخ'], 
+            data: tableData,
+            cellStyle: pw.TextStyle(font: fontRegular),
+            headerStyle: pw.TextStyle(font: fontBold),
+            cellAlignment: pw.Alignment.centerRight,
+          )
         else
-          pw.Text('لا توجد معاملات في هذا الحساب.'),
+          pw.Text('لا توجد معاملات في هذا الحساب.', style: pw.TextStyle(font: fontRegular)),
       ],
     ));
     await Printing.sharePdf(bytes: await pdf.save(), filename: 'qersheen_statement.pdf');
